@@ -71,8 +71,27 @@ def plot_psf(psf_result: dict, title: str = "IP reconstruction (area-normalised)
     return fig, (ax1, ax2)
 
 
-def plot_line_fit(x_data, y_data, y_err, psf_result: dict, sigma_band: float = 3.0, figsize=(14, 6)):
-    """Plot data vs summed per-line model and normalised residuals (pixel-space result only)."""
+def plot_line_fit(
+    x_data,
+    y_data,
+    y_err,
+    psf_result: dict,
+    sigma_band: float = 3.0,
+    theoretical_x=None,
+    figsize=(14, 6),
+):
+    """
+    Plot the raw chunk data against the summed per-line model, with the
+    fitted line centres (``psf_result["line_centres"]``) marked as vertical
+    lines — the diagnostic to check whether individual LFC/ThAr peaks were
+    detected and centred correctly (pixel-space result only, i.e. from
+    :func:`psfcal.compute_psf_chunk_pixel`).
+
+    Pass ``theoretical_x`` (e.g. theoretical LFC line positions converted
+    to pixel coordinates via ``np.interp(theoretical_wavelengths,
+    wave_order, pixel_array)``) to additionally overlay the expected
+    positions for comparison against the fitted ones.
+    """
     if "model" not in psf_result:
         raise KeyError("psf_result has no 'model' key (only compute_psf_chunk_pixel results have one).")
 
@@ -88,8 +107,13 @@ def plot_line_fit(x_data, y_data, y_err, psf_result: dict, sigma_band: float = 3
                  elinewidth=0.5, alpha=0.7, label="data", zorder=2)
     ax1.plot(x_data, model, color="firebrick", lw=1.5,
              label=r"model ($\Sigma$ single-line PSF fits)", zorder=3)
-    for cen in centres:
-        ax1.axvline(cen, color="sandybrown", lw=0.7, alpha=0.6)
+    for i, cen in enumerate(centres):
+        ax1.axvline(cen, color="sandybrown", lw=0.9, alpha=0.8,
+                     label="fitted centre" if i == 0 else None, zorder=4)
+    if theoretical_x is not None:
+        for i, tx in enumerate(np.asarray(theoretical_x, dtype=float)):
+            ax1.axvline(tx, color="seagreen", lw=0.9, ls="--", alpha=0.8,
+                        label="theoretical centre" if i == 0 else None, zorder=4)
     ax1.set_ylabel("Flux (e-)")
     ax1.legend(fontsize=9)
 

@@ -33,6 +33,9 @@ def compute_psf_chunk_pixel(
     use_secondary_gp: bool = True,
     min_per_bin: int = 15,
     centre_bounds: float = 2.0,
+    subtract_background: bool = False,
+    min_window_half: int = 3,
+    min_quantile: float = 0.01,
     verbose: bool = False,
 ) -> dict:
     """
@@ -56,14 +59,25 @@ def compute_psf_chunk_pixel(
     n_recentre_max, recentre_tol : re-centring loop controls (§3.3).
     use_secondary_gp, min_per_bin : §4.6 empirical variance correction controls.
     centre_bounds : max allowed centre shift per line per iteration (pix).
+    subtract_background : if True, estimate and subtract a smooth background
+        (low-quantile interpolation through the trough minima, same method
+        used internally by :func:`psfcal.compute_psf_chunk_rv`) before
+        stacking. The method assumes background-subtracted input (per the
+        paper); leave ``y`` pre-subtracted and this ``False`` (default, for
+        exact fidelity to the original reference implementation), OR pass
+        raw flux with ``subtract_background=True``. Passing raw,
+        non-background-subtracted flux with this left ``False`` will bias
+        the reconstructed PSF.
+    min_window_half, min_quantile : background estimation controls, only
+        used when ``subtract_background=True``.
 
     Returns
     -------
     dict with keys: theta, psf_x, psf_mean, psf_std, psf_cov, psf_centroid,
-    psf_centroid_err, model, residuals, rms, line_centres, line_amps,
-    line_centre_errors, line_amp_errors, line_rv_errors, stacked_x,
-    stacked_y, stacked_yerr, secondary_gp_bins, secondary_gp_log_S2,
-    secondary_gp_g_at_stacked, history.
+    psf_centroid_err, model, residuals, rms, background, line_centres,
+    line_amps, line_centre_errors, line_amp_errors, line_rv_errors,
+    stacked_x, stacked_y, stacked_yerr, secondary_gp_bins,
+    secondary_gp_log_S2, secondary_gp_g_at_stacked, history.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -81,6 +95,14 @@ def compute_psf_chunk_pixel(
     )
     if verbose:
         print(f"Detected {len(peak_idx)} lines.")
+
+    if subtract_background:
+        background = _lines.estimate_background(
+            x, y, minima_idx, half=min_window_half, q=min_quantile,
+        )
+        y = y - background
+    else:
+        background = np.zeros_like(y)
 
     X_st, Y_st, E_st, centres, amplitudes = _lines.stack_lines_pixel(
         x, y, y_err, peak_idx, minima_idx,
@@ -118,6 +140,8 @@ def compute_psf_chunk_pixel(
                       f"[{g_at_X_out.min():.2f}, {g_at_X_out.max():.2f}]")
 
         total_shift = 0.0
+        converged = False
+        first_step_state = None
         for rc in range(n_recentre_max):
             theta = _gp.train_primary_gp(X_st, Y_st, sigma_i)
 
@@ -135,10 +159,29 @@ def compute_psf_chunk_pixel(
                 print(f"   Re-centring step {rc + 1}: delta = {delta:.6f} pix "
                       f"(cumulative {total_shift:.6f} pix)")
 
+            if rc == 0:
+                # Eq.20's fixed-point iteration is not guaranteed to converge
+                # for every PSF shape (observed to drift indefinitely for
+                # sufficiently asymmetric profiles); keep the state after a
+                # single correction as a conservative fallback.
+                first_step_state = (X_st.copy(), psf_x_grid, psf_mean, psf_std, psf_cov, theta)
+
             if abs(delta) < recentre_tol:
                 if verbose:
                     print(f"   Re-centring converged after {rc + 1} step(s).")
+                converged = True
                 break
+
+        if not converged and n_recentre_max > 1 and first_step_state is not None:
+            warnings.warn(
+                f"Re-centring did not converge after {n_recentre_max} steps "
+                f"(last delta = {delta:.4f}, cumulative shift = {total_shift:.4f}); "
+                "falling back to the result after a single re-centring step. "
+                "Pass n_recentre_max=1 explicitly to silence this and always "
+                "use that behaviour, or inspect delta with verbose=True.",
+                stacklevel=2,
+            )
+            X_st, psf_x_grid, psf_mean, psf_std, psf_cov, theta = first_step_state
 
         psf_mean, psf_std, psf_cov = _gp.area_normalise(psf_x_grid, psf_mean, psf_std, psf_cov=psf_cov)
 
@@ -190,6 +233,7 @@ def compute_psf_chunk_pixel(
         model=model,
         residuals=residuals,
         rms=rms,
+        background=background,
         line_centres=centres,
         line_amps=amplitudes,
         line_centre_errors=cen_errors,

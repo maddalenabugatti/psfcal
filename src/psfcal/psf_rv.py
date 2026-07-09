@@ -150,6 +150,9 @@ def compute_psf_chunk_rv(
 
         if n_iterations > 1:
             total_shift = 0.0
+            converged = False
+            first_step_state = None
+            tol_scaled = recentre_tol * max(half_width / 0.5, 1.0)
             for rc in range(n_recentre_max):
                 theta = _gp.train_primary_gp(X_st, Y_st, sigma_i, gp_log_scale_bounds=gp_log_scale_bounds)
                 psf_x_grid = np.linspace(float(X_st.min()), float(X_st.max()), n_psf_points)
@@ -166,8 +169,24 @@ def compute_psf_chunk_rv(
                     print(f"   Re-centring step {rc + 1}: delta = {delta:.3f} m/s "
                           f"(cumulative {total_shift:.3f} m/s)")
 
-                if abs(delta) < recentre_tol * max(half_width / 0.5, 1.0):
+                if rc == 0:
+                    # Eq.20's fixed-point iteration is not guaranteed to
+                    # converge for every PSF shape; keep the state after a
+                    # single correction as a conservative fallback.
+                    first_step_state = (X_st.copy(), psf_x_grid, psf_mean, psf_std, psf_cov, theta)
+
+                if abs(delta) < tol_scaled:
+                    converged = True
                     break
+
+            if not converged and n_recentre_max > 1 and first_step_state is not None:
+                warnings.warn(
+                    f"Re-centring did not converge after {n_recentre_max} steps "
+                    f"(last delta = {delta:.1f} m/s, cumulative shift = {total_shift:.1f} m/s); "
+                    "falling back to the result after a single re-centring step.",
+                    stacklevel=2,
+                )
+                X_st, psf_x_grid, psf_mean, psf_std, psf_cov, theta = first_step_state
 
         rms_tmp = float(np.sqrt(np.nanmean(
             ((Y_st - np.interp(X_st, psf_x_grid, psf_mean, left=0.0, right=0.0)) / sigma_i) ** 2
