@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psfcal"
+version = "0.1.0"
+description = "Instrumental-profile (PSF/IP) reconstruction, forward convolution, deconvolution and RV-shift toolkit for echelle spectra (HARPS-style pixel and RV chunks)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Maddalena Bugatti" }]
+dependencies = [
+    "numpy",
+    "scipy",
+    "jax",
+    "jaxopt",
+    "tinygp",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib"]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
