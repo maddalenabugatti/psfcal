@@ -32,11 +32,15 @@ def detect_lines_pixel(
     y: np.ndarray,
     min_peak_distance: int = 3,
     min_peak_height_fraction: float = 0.05,
+    max_half_window: int | None = 15,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Returns ``(peak_indices, minima_boundary_indices)``.
-    ``minima_boundary_indices`` has length ``len(peak_indices) + 1``; line
-    ``k`` spans indices ``[minima[k], minima[k+1])``.
+    Returns ``(peak_indices, windows)``.
+
+    ``windows`` is an ``(n_peaks, 2)`` array of inclusive ``[left, right]``
+    pixel-index bounds, one independently-found window per peak (see
+    :func:`line_windows`). Slice line ``k``'s data as ``x[l:r+1]`` with
+    ``l, r = windows[k]``.
     """
     threshold = min_peak_height_fraction * np.nanmax(y)
     peak_idx, _ = signal.find_peaks(y, distance=min_peak_distance, height=threshold)
@@ -45,13 +49,8 @@ def detect_lines_pixel(
             "No peaks found. Try lowering min_peak_height_fraction or min_peak_distance."
         )
 
-    minima = [0]
-    for i in range(len(peak_idx) - 1):
-        seg = y[peak_idx[i]: peak_idx[i + 1] + 1]
-        minima.append(int(np.argmin(seg)) + peak_idx[i])
-    minima.append(len(y) - 1)
-
-    return peak_idx, np.array(minima, dtype=int)
+    windows = line_windows(y, peak_idx, max_half_window=max_half_window)
+    return peak_idx, windows
 
 
 # ─────────────────────────────────────────────────────────────
@@ -113,27 +112,66 @@ def detect_lines_theory(
     )
 
 
-def minima_from_peaks(y: np.ndarray, peak_idx: np.ndarray) -> np.ndarray:
-    """Trough-to-trough boundaries between consecutive peaks."""
-    minima = [0]
-    for i in range(len(peak_idx) - 1):
-        seg = y[peak_idx[i]: peak_idx[i + 1] + 1]
-        minima.append(int(np.argmin(seg)) + peak_idx[i])
-    minima.append(len(y) - 1)
-    return np.array(minima, dtype=int)
+def line_windows(
+    y: np.ndarray,
+    peak_idx: np.ndarray,
+    max_half_window: int | None = 15,
+) -> np.ndarray:
+    """
+    For each peak, independently find its own two bounding minima -- the
+    trough of the raw array between it and its left neighbour, and between
+    it and its right neighbour -- rather than relying on a single set of
+    boundaries shared between consecutive *detected* peaks.
+
+    This matters because if an intermediate peak fails detection (too
+    faint, too close to a stronger neighbour, etc.), a shared-boundary
+    scheme bridges straight over it: the "trough" between the two
+    surviving detections then sits partway up the missed peak's flank,
+    pulling that entire missed peak's flux into whichever line's window it
+    falls in and biasing/broadening the stacked PSF (visible as extra
+    bumps in the wings of the reconstructed profile). Bounding each
+    window to ``max_half_window`` pixels on either side of its own peak
+    (in addition to never crossing the immediate neighbouring peak
+    position) caps how far such contamination can reach even when it
+    occurs.
+
+    Returns an ``(n_peaks, 2)`` array of inclusive ``[left, right]``
+    pixel-index bounds.
+    """
+    n = len(y)
+    peak_idx = np.asarray(peak_idx, dtype=int)
+    windows = np.zeros((len(peak_idx), 2), dtype=int)
+
+    for k, p in enumerate(peak_idx):
+        left_bound = int(peak_idx[k - 1]) if k > 0 else 0
+        right_bound = int(peak_idx[k + 1]) if k < len(peak_idx) - 1 else n - 1
+        if max_half_window is not None:
+            left_bound = max(left_bound, p - max_half_window)
+            right_bound = min(right_bound, p + max_half_window)
+        left_bound = int(np.clip(left_bound, 0, p))
+        right_bound = int(np.clip(right_bound, p, n - 1))
+
+        left = left_bound + int(np.argmin(y[left_bound:p + 1]))
+        right = p + int(np.argmin(y[p:right_bound + 1]))
+        windows[k] = (left, right)
+
+    return windows
 
 
 def estimate_background(
     x: np.ndarray,
     y: np.ndarray,
-    minima_idx: np.ndarray,
+    windows: np.ndarray,
     half: int = 3,
     q: float = 0.01,
 ) -> np.ndarray:
-    """Background estimate via PCHIP interpolation through low-quantile minima."""
-    interior = minima_idx[1:-1]
-    if len(interior) < 2:
+    """
+    Background estimate via PCHIP interpolation through low-quantile
+    points at the midpoint between each pair of consecutive line windows.
+    """
+    if len(windows) < 3:
         return np.zeros_like(y)
+    interior = ((windows[:-1, 1] + windows[1:, 0]) // 2).astype(int)
     min_x = x[interior].astype(float)
     min_y = np.array([
         float(np.quantile(y[max(0, i - half):min(len(y), i + half + 1)], q))
@@ -171,12 +209,15 @@ def stack_lines_pixel(
     y: np.ndarray,
     y_err: np.ndarray,
     peak_idx: np.ndarray,
-    minima_idx: np.ndarray,
+    windows: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Stack all lines on their (Gaussian) centres, normalised by integrated
     flux f* = sum(F_i - B_i)  (Eq. 10).  sigma_psi_hat^2 = sigma_F^2 / f*^2
     (Eq. 11).
+
+    ``windows`` is the ``(n_peaks, 2)`` inclusive ``[left, right]`` bound
+    array from :func:`line_windows` / :func:`detect_lines_pixel`.
 
     Returns (stacked_dx, stacked_psi_hat, stacked_sigma_psi_hat, centres, amplitudes).
     """
@@ -184,8 +225,8 @@ def stack_lines_pixel(
     centres, amplitudes = [], []
 
     for k in range(len(peak_idx)):
-        l, r = minima_idx[k], minima_idx[k + 1] + 1
-        xk, yk, ek = x[l:r], y[l:r], y_err[l:r]
+        l, r = windows[k]
+        xk, yk, ek = x[l:r + 1], y[l:r + 1], y_err[l:r + 1]
         if len(xk) < 4:
             continue
 
@@ -223,7 +264,7 @@ def restack_lines(
     x: np.ndarray,
     y: np.ndarray,
     y_err: np.ndarray,
-    minima_idx: np.ndarray,
+    windows: np.ndarray,
     centres: np.ndarray,
     amplitudes: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -231,8 +272,8 @@ def restack_lines(
     X_all, Y_all, E_all = [], [], []
 
     for k in range(len(centres)):
-        l, r = minima_idx[k], minima_idx[k + 1] + 1
-        xk, yk, ek = x[l:r], y[l:r], y_err[l:r]
+        l, r = windows[k]
+        xk, yk, ek = x[l:r + 1], y[l:r + 1], y_err[l:r + 1]
         if len(xk) < 4:
             continue
         cen = centres[k]
@@ -267,6 +308,7 @@ def stack_lines_rv(
     peak_idx: np.ndarray,
     theory_x: np.ndarray,
     theory_wav: np.ndarray,
+    max_half_window: int | None = 15,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Stack all lines relative to their theoretical wavelength, using the
@@ -274,20 +316,22 @@ def stack_lines_rv(
 
         dv = c (lambda(pixel) - lambda_theory) / lambda_theory
 
-    Line boundaries are the trough-to-trough (minima) intervals around each
-    matched peak. Returns (stacked_dv, stacked_psi_hat, stacked_sigma_psi_hat).
+    Each line's window is its own independently-found pair of bounding
+    minima (see :func:`line_windows`), capped to ``max_half_window``
+    pixels either side of its peak so a missed neighbouring line can't
+    leak into it. Returns (stacked_dv, stacked_psi_hat, stacked_sigma_psi_hat).
     """
     if len(peak_idx) < 2:
         raise ValueError("Need at least 2 matched lines to stack.")
 
-    minima_idx = minima_from_peaks(y, peak_idx)
+    windows = line_windows(y, peak_idx, max_half_window=max_half_window)
     pix_full = np.arange(len(wave_order), dtype=float)
 
     X_all, Y_all, E_all = [], [], []
 
     for k in range(len(peak_idx)):
-        l, r = minima_idx[k], minima_idx[k + 1] + 1
-        xk, yk, ek = x[l:r], y[l:r], y_err[l:r]
+        l, r = windows[k]
+        xk, yk, ek = x[l:r + 1], y[l:r + 1], y_err[l:r + 1]
         if len(xk) < 4 or xk[0] <= x[0] or xk[-1] >= x[-1]:
             continue
 
@@ -402,7 +446,7 @@ def fit_all_lines(
     y_err: np.ndarray,
     psf_x: np.ndarray,
     psf_mean: np.ndarray,
-    minima_idx: np.ndarray,
+    windows: np.ndarray,
     centres_init: np.ndarray,
     amplitudes_init: np.ndarray,
     centre_bounds: float = 2.0,
@@ -423,8 +467,8 @@ def fit_all_lines(
     cen_errs = np.full(n_lines, np.nan)
 
     for k in range(n_lines):
-        l, r = minima_idx[k], minima_idx[k + 1] + 1
-        xk, yk, ek = x[l:r], y[l:r], y_err[l:r]
+        l, r = windows[k]
+        xk, yk, ek = x[l:r + 1], y[l:r + 1], y_err[l:r + 1]
         if len(xk) < 3:
             continue
         new_amps[k], new_cens[k], amp_errs[k], cen_errs[k] = fit_single_line(

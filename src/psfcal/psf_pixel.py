@@ -36,6 +36,7 @@ def compute_psf_chunk_pixel(
     subtract_background: bool = False,
     min_window_half: int = 3,
     min_quantile: float = 0.01,
+    max_half_window: int | None = 15,
     verbose: bool = False,
 ) -> dict:
     """
@@ -70,6 +71,13 @@ def compute_psf_chunk_pixel(
         the reconstructed PSF.
     min_window_half, min_quantile : background estimation controls, only
         used when ``subtract_background=True``.
+    max_half_window : cap, in pixels either side of each detected peak, on
+        how far its stacking window can extend (see :func:`psfcal._lines.
+        line_windows`). Prevents a missed neighbouring line (or a
+        genuinely wide gap) from leaking into this line's window and
+        showing up as extra bumps in the wings of the reconstructed PSF.
+        ``None`` disables the cap (window extends to the true trough
+        against the neighbouring *detected* peak, whatever the distance).
 
     Returns
     -------
@@ -88,24 +96,25 @@ def compute_psf_chunk_pixel(
     y_err = np.asarray(y_err, dtype=float)
     y_err = np.where(y_err > 0, y_err, np.abs(y) * 0.01 + 1.0)
 
-    peak_idx, minima_idx = _lines.detect_lines_pixel(
+    peak_idx, windows = _lines.detect_lines_pixel(
         x, y,
         min_peak_distance=min_peak_distance,
         min_peak_height_fraction=min_peak_height_fraction,
+        max_half_window=max_half_window,
     )
     if verbose:
         print(f"Detected {len(peak_idx)} lines.")
 
     if subtract_background:
         background = _lines.estimate_background(
-            x, y, minima_idx, half=min_window_half, q=min_quantile,
+            x, y, windows, half=min_window_half, q=min_quantile,
         )
         y = y - background
     else:
         background = np.zeros_like(y)
 
     X_st, Y_st, E_st, centres, amplitudes = _lines.stack_lines_pixel(
-        x, y, y_err, peak_idx, minima_idx,
+        x, y, y_err, peak_idx, windows,
     )
 
     theta = None
@@ -188,14 +197,14 @@ def compute_psf_chunk_pixel(
         amplitudes, centres, model, amp_errors, cen_errors = _lines.fit_all_lines(
             x, y, y_err,
             psf_x_grid, psf_mean,
-            minima_idx=minima_idx,
+            windows=windows,
             centres_init=centres,
             amplitudes_init=amplitudes,
             centre_bounds=centre_bounds,
         )
 
         X_st, Y_st, E_st = _lines.restack_lines(
-            x, y, y_err, minima_idx, centres, amplitudes,
+            x, y, y_err, windows, centres, amplitudes,
         )
 
         res_tmp = (y - model) / np.clip(y_err, 1e-30, None)
@@ -234,6 +243,7 @@ def compute_psf_chunk_pixel(
         residuals=residuals,
         rms=rms,
         background=background,
+        line_windows=windows,
         line_centres=centres,
         line_amps=amplitudes,
         line_centre_errors=cen_errors,

@@ -38,6 +38,7 @@ def compute_psf_chunk_rv(
     n_recentre_max: int = 20,
     recentre_tol: float = 1e-3,
     gp_length_scale_bounds_mps: tuple = (50.0, 5000.0),
+    max_half_window: int | None = 15,
     verbose: bool = False,
 ) -> dict:
     """
@@ -64,6 +65,10 @@ def compute_psf_chunk_rv(
         search for the observed peak.
     min_window_half, min_quantile : background estimation controls
         (§ Background estimation).
+    max_half_window : cap, in pixels either side of each matched peak, on
+        how far its stacking window can extend (see :func:`psfcal._lines.
+        line_windows`) — prevents a missed/unmatched neighbouring line
+        from leaking into this line's window. ``None`` disables the cap.
 
     Returns
     -------
@@ -91,14 +96,15 @@ def compute_psf_chunk_rv(
     if verbose:
         print(f"Matched {len(peak_idx)} theoretical lines.")
 
-    minima_idx = _lines.minima_from_peaks(y, peak_idx)
+    windows = _lines.line_windows(y, peak_idx, max_half_window=max_half_window)
     background = _lines.estimate_background(
-        x, y, minima_idx, half=min_window_half, q=min_quantile,
+        x, y, windows, half=min_window_half, q=min_quantile,
     )
     y_sub = y - background
 
     X_st, Y_st, E_st = _lines.stack_lines_rv(
         x, y_sub, y_err, wave_order, peak_idx, theory_x, theory_wav,
+        max_half_window=max_half_window,
     )
 
     # local dispersion for this chunk, used to convert the Eq.20 half-pixel
@@ -219,6 +225,8 @@ def compute_psf_chunk_rv(
         psf_centroid=psf_centroid,
         psf_centroid_err=psf_centroid_err,
         n_lines_used=len(peak_idx),
+        line_windows=windows,
+        background=background,
         stacked_x=X_st,
         stacked_y=Y_st,
         stacked_yerr=sigma_i,
