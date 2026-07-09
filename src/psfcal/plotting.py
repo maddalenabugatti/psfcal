@@ -91,20 +91,33 @@ def plot_line_fit(
     to pixel coordinates via ``np.interp(theoretical_wavelengths,
     wave_order, pixel_array)``) to additionally overlay the expected
     positions for comparison against the fitted ones.
+
+    ``y_data`` should be the same raw flux you passed into
+    ``compute_psf_chunk_pixel`` — if that call used
+    ``subtract_background=True``, the fitted ``model`` was fit against the
+    background-subtracted flux, so this function automatically subtracts
+    ``psf_result["background"]`` from ``y_data`` before plotting/computing
+    residuals (a no-op if background subtraction wasn't used).
     """
     if "model" not in psf_result:
         raise KeyError("psf_result has no 'model' key (only compute_psf_chunk_pixel results have one).")
 
     centres = psf_result["line_centres"]
     model = psf_result["model"]
-    residuals = (np.asarray(y_data) - model) / np.clip(y_err, 1e-30, None)
+
+    y_data = np.asarray(y_data, dtype=float)
+    background = psf_result.get("background")
+    if background is not None and np.any(np.asarray(background) != 0):
+        y_data = y_data - np.asarray(background)
+
+    residuals = (y_data - model) / np.clip(y_err, 1e-30, None)
 
     fig, (ax1, ax2) = plt.subplots(
         2, 1, figsize=figsize, sharex=True,
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
     )
     ax1.errorbar(x_data, y_data, yerr=y_err, fmt="o", ms=3, color="0.25",
-                 elinewidth=0.5, alpha=0.7, label="data", zorder=2)
+                 elinewidth=0.5, alpha=0.7, label="data (background-subtracted)", zorder=2)
     ax1.plot(x_data, model, color="firebrick", lw=1.5,
              label=r"model ($\Sigma$ single-line PSF fits)", zorder=3)
     for i, cen in enumerate(centres):
