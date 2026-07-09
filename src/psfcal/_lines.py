@@ -484,3 +484,67 @@ def fit_all_lines(
         model += new_amps[k] * np.clip(psi_interp(dx), 0.0, None)
 
     return new_amps, new_cens, model, amp_errs, cen_errs
+
+
+# ─────────────────────────────────────────────────────────────
+#  RV-space per-line amplitude fit + summed model (theory-anchored)
+# ─────────────────────────────────────────────────────────────
+
+def fit_all_lines_rv(
+    x: np.ndarray,
+    y: np.ndarray,
+    y_err: np.ndarray,
+    wave_order: np.ndarray,
+    windows: np.ndarray,
+    theory_wav: np.ndarray,
+    psf_v: np.ndarray,
+    psf_mean: np.ndarray,
+    mps_per_pix: float,
+    x1: float = 2.5,
+    x2: float = 5.0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Build the summed-per-line reconstruction for an RV-space PSF.
+
+    Unlike :func:`fit_all_lines` (pixel space), each line's centre is
+    *fixed* at its theoretical wavelength (that's the whole point of the
+    RV-anchored method), so only the per-line amplitude is fit -- a
+    closed-form weighted least-squares problem, no iterative optimizer
+    needed. Uses the same tapered weight scheme as Eq. 16, with the
+    +-2.5/+-5 pixel window scaled to velocity via ``mps_per_pix``.
+
+    Returns ``(model, amplitudes, amplitude_errors)``.
+    """
+    psi_interp = interp1d(
+        psf_v, psf_mean, kind="cubic", bounds_error=False, fill_value=0.0,
+    )
+    pix_full = np.arange(len(wave_order), dtype=float)
+    x1v, x2v = x1 * abs(mps_per_pix), x2 * abs(mps_per_pix)
+
+    n_lines = len(theory_wav)
+    amps = np.zeros(n_lines)
+    amp_errs = np.full(n_lines, np.nan)
+    model = np.zeros_like(x, dtype=float)
+
+    for k in range(n_lines):
+        l, r = windows[k]
+        xk, yk, ek = x[l:r + 1], y[l:r + 1], y_err[l:r + 1]
+        if len(xk) < 2:
+            continue
+
+        lam_theo = theory_wav[k]
+        wav_k = np.interp(xk, pix_full, wave_order)
+        dv_k = C_LIGHT_MPS * (wav_k - lam_theo) / lam_theo
+        psi_k = np.clip(psi_interp(dv_k), 0.0, None)
+        w_k = weights(dv_k, x1v, x2v)
+        sigma_k = np.clip(ek, 1e-30, None)
+
+        num = np.sum(w_k * psi_k * yk / sigma_k ** 2)
+        den = np.sum(w_k * psi_k ** 2 / sigma_k ** 2)
+        if den > 0:
+            amps[k] = num / den
+            amp_errs[k] = 1.0 / np.sqrt(den)
+
+        model[l:r + 1] += amps[k] * psi_k
+
+    return model, amps, amp_errs

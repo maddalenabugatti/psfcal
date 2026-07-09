@@ -73,9 +73,14 @@ def compute_psf_chunk_rv(
     Returns
     -------
     dict with keys: theta, psf_x (m/s), psf_mean, psf_std, psf_cov,
-    psf_centroid, psf_centroid_err, n_lines_used, stacked_x, stacked_y,
+    psf_centroid, psf_centroid_err, n_lines_used, line_windows, background,
+    model, residuals, rms, line_centres (theoretical pixel positions),
+    line_amps, line_amp_errors, theory_wavelengths, stacked_x, stacked_y,
     stacked_yerr, secondary_gp_bins, secondary_gp_log_S2,
-    secondary_gp_g_at_stacked, history.
+    secondary_gp_g_at_stacked, history. Has the same ``model``/
+    ``line_centres``/``line_windows``/``background`` keys as
+    :func:`compute_psf_chunk_pixel`, so :func:`psfcal.plotting.plot_psf`
+    and :func:`psfcal.plotting.plot_line_fit` both work on either result.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -216,6 +221,17 @@ def compute_psf_chunk_rv(
     psf_centroid_var = float(grad_mu @ psf_cov @ grad_mu)
     psf_centroid_err = float(np.sqrt(max(psf_centroid_var, 0.0)))
 
+    # Per-line amplitude fit (centre fixed at the theoretical wavelength)
+    # + summed reconstruction, so RV-space results carry a "model" and
+    # "line_centres" just like compute_psf_chunk_pixel does -- lets the
+    # same plotting.plot_line_fit(...) diagnostic work on either.
+    model, line_amps, line_amp_errors = _lines.fit_all_lines_rv(
+        x, y_sub, y_err, wave_order, windows, theory_wav,
+        psf_x_grid, psf_mean, mps_per_pix,
+    )
+    residuals = (y_sub - model) / np.clip(y_err, 1e-30, None)
+    rms = float(np.sqrt(np.nanmean(residuals ** 2)))
+
     return dict(
         theta=theta,
         psf_x=psf_x_grid,
@@ -227,6 +243,13 @@ def compute_psf_chunk_rv(
         n_lines_used=len(peak_idx),
         line_windows=windows,
         background=background,
+        model=model,
+        residuals=residuals,
+        rms=rms,
+        line_centres=theory_x,
+        line_amps=line_amps,
+        line_amp_errors=line_amp_errors,
+        theory_wavelengths=theory_wav,
         stacked_x=X_st,
         stacked_y=Y_st,
         stacked_yerr=sigma_i,
