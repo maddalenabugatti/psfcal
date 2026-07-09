@@ -78,6 +78,7 @@ def plot_line_fit(
     psf_result: dict,
     sigma_band: float = 3.0,
     theoretical_x=None,
+    trim_to_windows: bool = True,
     figsize=(14, 6),
 ):
     """
@@ -98,6 +99,12 @@ def plot_line_fit(
     background-subtracted flux, so this function automatically subtracts
     ``psf_result["background"]`` from ``y_data`` before plotting/computing
     residuals (a no-op if background subtraction wasn't used).
+
+    ``trim_to_windows`` (default True) drops pixels before the first
+    line's window and after the last line's window: those pixels were
+    never part of any line's stacking window, so ``model`` is 0 there
+    regardless of the (nonzero) data, which otherwise shows up as huge
+    spurious residuals at the very edges of the plot.
     """
     if "model" not in psf_result:
         raise KeyError("psf_result has no 'model' key (only compute_psf_chunk_pixel results have one).")
@@ -105,10 +112,18 @@ def plot_line_fit(
     centres = psf_result["line_centres"]
     model = psf_result["model"]
 
+    x_data = np.asarray(x_data)
     y_data = np.asarray(y_data, dtype=float)
+    y_err = np.asarray(y_err, dtype=float)
     background = psf_result.get("background")
     if background is not None and np.any(np.asarray(background) != 0):
         y_data = y_data - np.asarray(background)
+
+    windows = psf_result.get("line_windows")
+    if trim_to_windows and windows is not None and len(windows) > 0:
+        lo_idx, hi_idx = int(windows[0, 0]), int(windows[-1, 1])
+        keep = slice(lo_idx, hi_idx + 1)
+        x_data, y_data, y_err, model = x_data[keep], y_data[keep], y_err[keep], model[keep]
 
     residuals = (y_data - model) / np.clip(y_err, 1e-30, None)
 
