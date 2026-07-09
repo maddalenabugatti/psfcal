@@ -39,6 +39,7 @@ def compute_psf_chunk_rv(
     recentre_tol: float = 1e-3,
     gp_length_scale_bounds_mps: tuple = (50.0, 5000.0),
     max_half_window: int | None = 15,
+    recenter: bool = True,
     verbose: bool = False,
 ) -> dict:
     """
@@ -69,6 +70,15 @@ def compute_psf_chunk_rv(
         how far its stacking window can extend (see :func:`psfcal._lines.
         line_windows`) — prevents a missed/unmatched neighbouring line
         from leaking into this line's window. ``None`` disables the cap.
+    recenter : if True (default), shift the returned ``psf_x`` (and
+        ``stacked_x``, ``theory_wavelengths``) as a final step so the
+        PSF's own area (trapz) centroid sits at exactly 0 m/s -- corrects
+        for a real, systematic offset between the assumed theoretical
+        wavelengths and the true line positions (e.g. slightly-off LFC
+        comb constants, or a genuine RV difference), which is common and
+        otherwise leaves the PSF centred away from 0. ``psf_centroid`` is
+        then exactly 0 by construction; ``model``/``line_amps`` are
+        unaffected (translation-invariant).
 
     Returns
     -------
@@ -141,7 +151,18 @@ def compute_psf_chunk_rv(
             print(f"\n  -- Iteration {it + 1} / {n_iterations} --")
 
         sigma_i = E_st.copy()
-        theta = _gp.train_primary_gp(X_st, Y_st, sigma_i, gp_log_scale_bounds=gp_log_scale_bounds)
+        # RV-anchored stacks are NOT guaranteed to be centred near 0 (unlike
+        # pixel-space, where each line is centred on its own fitted
+        # Gaussian) -- a real systematic offset between the assumed
+        # theoretical wavelengths and the true line positions shows up as
+        # a shifted stack. Seed the mean-function fit at the data's actual
+        # peak so curve_fit doesn't fail to converge (see
+        # _gp.train_primary_gp's mf_loc_init).
+        mf_loc_init = float(X_st[np.argmax(Y_st)])
+        theta = _gp.train_primary_gp(
+            X_st, Y_st, sigma_i,
+            gp_log_scale_bounds=gp_log_scale_bounds, mf_loc_init=mf_loc_init,
+        )
 
         if use_secondary_gp:
             try:
@@ -152,7 +173,10 @@ def compute_psf_chunk_rv(
             except Exception as exc:
                 warnings.warn(f"Secondary GP failed ({exc}); using unmodified errors.")
 
-        theta = _gp.train_primary_gp(X_st, Y_st, sigma_i, gp_log_scale_bounds=gp_log_scale_bounds)
+        theta = _gp.train_primary_gp(
+            X_st, Y_st, sigma_i,
+            gp_log_scale_bounds=gp_log_scale_bounds, mf_loc_init=mf_loc_init,
+        )
         psf_x_grid = np.linspace(float(X_st.min()), float(X_st.max()), n_psf_points)
         psf_mean, psf_std, psf_cov = _gp.predict_primary_gp(
             theta, X_st, Y_st, sigma_i, psf_x_grid,
@@ -165,7 +189,11 @@ def compute_psf_chunk_rv(
             first_step_state = None
             tol_scaled = recentre_tol * max(half_width / 0.5, 1.0)
             for rc in range(n_recentre_max):
-                theta = _gp.train_primary_gp(X_st, Y_st, sigma_i, gp_log_scale_bounds=gp_log_scale_bounds)
+                mf_loc_init = float(X_st[np.argmax(Y_st)])
+                theta = _gp.train_primary_gp(
+                    X_st, Y_st, sigma_i,
+                    gp_log_scale_bounds=gp_log_scale_bounds, mf_loc_init=mf_loc_init,
+                )
                 psf_x_grid = np.linspace(float(X_st.min()), float(X_st.max()), n_psf_points)
                 psf_mean, psf_std, psf_cov = _gp.predict_primary_gp(
                     theta, X_st, Y_st, sigma_i, psf_x_grid,
@@ -231,6 +259,19 @@ def compute_psf_chunk_rv(
     )
     residuals = (y_sub - model) / np.clip(y_err, 1e-30, None)
     rms = float(np.sqrt(np.nanmean(residuals ** 2)))
+
+    if recenter and psf_centroid != 0.0:
+        # Plain post-hoc translation (not the Eq.20 loop above) so the
+        # returned PSF's own centroid sits at exactly 0 m/s. theory_wav is
+        # shifted by the equivalent wavelength so a re-run using the
+        # returned theory_wavelengths reproduces the same, now-centred,
+        # anchor -- model/line_amps (already built above) are unaffected
+        # (translation-invariant).
+        shift = psf_centroid
+        psf_x_grid = psf_x_grid - shift
+        X_st = X_st - shift
+        theory_wav = theory_wav * (1.0 + shift / _kernel.C_LIGHT_MPS)
+        psf_centroid = 0.0
 
     return dict(
         theta=theta,

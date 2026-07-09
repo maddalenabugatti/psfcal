@@ -37,6 +37,7 @@ def compute_psf_chunk_pixel(
     min_window_half: int = 3,
     min_quantile: float = 0.01,
     max_half_window: int | None = 15,
+    recenter: bool = True,
     verbose: bool = False,
 ) -> dict:
     """
@@ -57,9 +58,17 @@ def compute_psf_chunk_pixel(
         Default 1 (single pass: stack once, fit the GP, refit line
         centres/amplitudes once against the resulting PSF).
     n_psf_points  : dense grid points for the returned PSF (paper uses 800).
-    n_recentre_max, recentre_tol : re-centring loop controls (§3.3).
+    n_recentre_max, recentre_tol : Eq.20 fixed-point re-centring loop
+        controls (§3.3) -- not guaranteed to converge for every PSF shape;
+        see ``recenter`` for a simpler, always-exact alternative.
     use_secondary_gp, min_per_bin : §4.6 empirical variance correction controls.
     centre_bounds : max allowed centre shift per line per iteration (pix).
+    recenter : if True (default), shift the returned ``psf_x`` (and
+        ``stacked_x``, ``line_centres``) as a final step so the PSF's own
+        area (trapz) centroid sits at exactly 0 -- a plain post-hoc
+        translation, independent of and more robust than the Eq.20 loop
+        above. ``psf_centroid`` is then exactly 0 by construction; the
+        reconstructed ``model`` is unaffected (translation-invariant).
     subtract_background : if True, estimate and subtract a smooth background
         (low-quantile interpolation through the trough minima, same method
         used internally by :func:`psfcal.compute_psf_chunk_rv`) before
@@ -230,6 +239,19 @@ def compute_psf_chunk_pixel(
     grad_mu = (w / area) * (psf_x_grid - psf_centroid)
     psf_centroid_var = float(grad_mu @ psf_cov @ grad_mu)
     psf_centroid_err = float(np.sqrt(max(psf_centroid_var, 0.0)))
+
+    if recenter and psf_centroid != 0.0:
+        # Shift the offset grid so the PSF's own (trapz) centroid sits at
+        # 0. This is a plain post-hoc translation, not the Eq.20 fixed-point
+        # correction above (which does not reliably converge, see
+        # n_recentre_max) -- it just guarantees psf_centroid == 0 exactly.
+        # line_centres shift oppositely by construction (dx = x - centre),
+        # so the reconstructed `model` is mathematically unchanged.
+        shift = psf_centroid
+        psf_x_grid = psf_x_grid - shift
+        X_st = X_st - shift
+        centres = centres + shift
+        psf_centroid = 0.0
 
     return dict(
         theta=theta,

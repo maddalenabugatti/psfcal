@@ -125,6 +125,7 @@ def train_primary_gp(
     sigma_i: np.ndarray,
     *,
     gp_log_scale_bounds: Tuple[float, float] = (-1.0, 1.0),
+    mf_loc_init: float | None = None,
 ) -> dict:
     """
     Optimise primary GP hyper-parameters by maximising Eq. (9).
@@ -141,12 +142,23 @@ def train_primary_gp(
     e.g. ``(log(50), log(5000))``, or the GP kernel will collapse to an
     inappropriate length scale and fail to reconstruct the PSF (see
     :mod:`psfcal.psf_rv`).
+
+    ``mf_loc_init`` seeds the Gaussian mean-function's centre for the
+    initial curve_fit. Defaults to 0.0, which is correct for pixel-space
+    stacking (each line is centred on its own fitted Gaussian, so the
+    stack is centred near 0 by construction) but WRONG for RV-space
+    stacking, where lines are anchored to a theoretical wavelength that
+    can carry a real, non-zero systematic offset from 0 -- with a bad
+    initial guess far from the data's actual peak, curve_fit can fail to
+    converge (raising ``OptimizeWarning``) and the GP collapses to a
+    near-flat fit. Pass e.g. ``X[np.argmax(Y)]`` for RV-space calls.
     """
     X_j = jnp.array(X)
     Y_j = jnp.array(Y)
     sigma_j = jnp.array(sigma_i)
 
-    p0 = (float(np.max(Y)), 0.0, max(float(np.std(X)) / 3.0, 0.1), 0.0)
+    loc0 = float(mf_loc_init) if mf_loc_init is not None else 0.0
+    p0 = (float(np.max(Y)), loc0, max(float(np.std(X)) / 3.0, 0.1), 0.0)
     try:
         popt, pcov = curve_fit(
             _gauss_np, X, Y, sigma=sigma_i, p0=p0,
