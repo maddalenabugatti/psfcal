@@ -158,11 +158,24 @@ def train_primary_gp(
     sigma_j = jnp.array(sigma_i)
 
     loc0 = float(mf_loc_init) if mf_loc_init is not None else 0.0
-    p0 = (float(np.max(Y)), loc0, max(float(np.std(X)) / 3.0, 0.1), 0.0)
+    X_lo, X_hi = float(np.min(X)), float(np.max(X))
+    X_range = max(X_hi - X_lo, 1e-6)
+    p0 = (
+        max(float(np.max(Y)), 1e-12),
+        float(np.clip(loc0, X_lo, X_hi)),
+        float(np.clip(max(float(np.std(X)) / 3.0, 0.1), 1e-6, X_range)),
+        0.0,
+    )
+    # Bounded (amplitude >= 0 in particular -- see mf_amp note below) so
+    # curve_fit uses 'trf', not the unconstrained default: for RV-space
+    # data (Y values ~1e-4, X spanning thousands of units) unconstrained
+    # least-squares has been observed to converge to wildly wrong-signed,
+    # wrong-scale parameters.
+    bounds = ((0.0, X_lo, 1e-6, -np.inf), (np.inf, X_hi, X_range, np.inf))
     try:
         popt, pcov = curve_fit(
-            _gauss_np, X, Y, sigma=sigma_i, p0=p0,
-            absolute_sigma=True, maxfev=10_000,
+            _gauss_np, X, Y, sigma=sigma_i, p0=p0, bounds=bounds,
+            absolute_sigma=True, maxfev=20_000,
         )
         perr = np.sqrt(np.diag(np.abs(pcov)))
         perr = np.clip(perr, 1e-6, np.abs(popt) + 1.0)
@@ -176,7 +189,7 @@ def train_primary_gp(
     gp_log_scale_init = float(np.clip(np.log(max(abs(popt[2]), 1e-8)), gp_lo, gp_hi))
 
     theta0 = dict(
-        mf_amp=float(popt[0]),
+        mf_amp=max(0.0, float(popt[0])),
         mf_loc=float(popt[1]),
         mf_log_sig=float(np.log(max(abs(popt[2]), 1e-4))),
         mf_y0=float(popt[3]),
@@ -185,7 +198,15 @@ def train_primary_gp(
         log_sigma0=-5.0,
     )
     lower = dict(
-        mf_amp=float(popt[0] - kappa * perr[0]),
+        # mf_amp represents a real emission line and must stay
+        # non-negative: the GP kernel's own flexible correction term can
+        # explain the stacked data just as well without the parametric
+        # mean function contributing anything, so nothing anchors its
+        # sign otherwise -- observed in practice to let the joint
+        # optimizer drift to a large *negative* amplitude that the
+        # correction term then cancels out, leaving the returned PSF
+        # (mean + correction) collapsed to ~0 everywhere.
+        mf_amp=max(0.0, float(popt[0] - kappa * perr[0])),
         mf_loc=float(popt[1] - kappa * perr[1]),
         mf_log_sig=float(np.log(max(abs(popt[2]) - kappa * perr[2], 1e-4))),
         mf_y0=float(popt[3] - kappa * perr[3]),
