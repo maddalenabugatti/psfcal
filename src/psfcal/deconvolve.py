@@ -35,7 +35,7 @@ def deconvolve_chunk_pixel(
     rl_iters: int = RL_ITERS_DEFAULT,
     l2_damp: float = L2_DAMP_DEFAULT,
     overlap_pix: Optional[int] = None,
-    continuum_normalize: bool = False,
+    continuum_normalize: bool = True,
     cont_kernel_size: int = _continuum.CONT_MEDFILT_KSIZE,
 ) -> np.ndarray:
     """
@@ -50,6 +50,18 @@ def deconvolve_chunk_pixel(
         many samples before deconvolving (reduces edge artefacts for a
         short, isolated chunk with no neighbouring data available); the
         padding is cropped back off before returning.
+    continuum_normalize : divide by a smooth continuum before running RL,
+        multiply it back afterwards (default True, matching
+        :func:`deconvolve_order`). ``l2_damp``'s default (3e-6) is
+        calibrated for continuum-normalized flux (~O(1)); at raw detector
+        counts (~1e4-1e5) the same l2_damp term is no longer negligible
+        and systematically suppresses the whole output level each
+        iteration (a real, reproduced effect: ~20% continuum suppression
+        on a 9e4-count synthetic spectrum with the paper's rl_iters=15,
+        disappearing entirely once normalized). If you disable this,
+        lower ``l2_damp`` by roughly the same factor your flux is above
+        O(1), or the deconvolved spectrum will come out systematically
+        too faint.
     """
     flux = np.asarray(flux, float)
 
@@ -80,7 +92,7 @@ def deconvolve_chunk_rv(
     rl_iters: int = RL_ITERS_DEFAULT,
     l2_damp: float = L2_DAMP_DEFAULT,
     overlap_pix: Optional[int] = None,
-    continuum_normalize: bool = False,
+    continuum_normalize: bool = True,
     cont_kernel_size: int = _continuum.CONT_MEDFILT_KSIZE,
 ) -> np.ndarray:
     """
@@ -89,6 +101,12 @@ def deconvolve_chunk_rv(
     Either pass ``mps_per_pix`` directly, or ``wave_chunk`` — the local
     wavelength solution over this chunk (same length as ``flux``) — from
     which the local dispersion is derived.
+
+    ``continuum_normalize`` (default True): see
+    :func:`deconvolve_chunk_pixel`'s docstring -- l2_damp is calibrated
+    for continuum-normalized flux and systematically suppresses raw
+    detector-count-scale output if this is disabled without also scaling
+    l2_damp down.
     """
     flux = np.asarray(flux, float)
 
