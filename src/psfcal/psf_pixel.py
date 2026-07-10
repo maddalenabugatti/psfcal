@@ -207,7 +207,7 @@ def compute_psf_chunk_pixel(
             )
             X_st, psf_x_grid, psf_mean, psf_std, psf_cov, theta = first_step_state
 
-        psf_mean, psf_std, psf_cov = _gp.area_normalise(psf_x_grid, psf_mean, psf_std, psf_cov=psf_cov)
+        psf_mean, psf_std, psf_cov, psf_area_norm = _gp.area_normalise(psf_x_grid, psf_mean, psf_std, psf_cov=psf_cov)
 
         amplitudes, centres, model, amp_errors, cen_errors = _lines.fit_all_lines(
             x, y, y_err,
@@ -246,6 +246,7 @@ def compute_psf_chunk_pixel(
     psf_centroid_var = float(grad_mu @ psf_cov @ grad_mu)
     psf_centroid_err = float(np.sqrt(max(psf_centroid_var, 0.0)))
 
+    recenter_shift = 0.0
     if recenter and psf_centroid != 0.0:
         # Shift the offset grid so the PSF's own (trapz) centroid sits at
         # 0. This is a plain post-hoc translation, not the Eq.20 fixed-point
@@ -253,10 +254,10 @@ def compute_psf_chunk_pixel(
         # n_recentre_max) -- it just guarantees psf_centroid == 0 exactly.
         # line_centres shift oppositely by construction (dx = x - centre),
         # so the reconstructed `model` is mathematically unchanged.
-        shift = psf_centroid
-        psf_x_grid = psf_x_grid - shift
-        X_st = X_st - shift
-        centres = centres + shift
+        recenter_shift = psf_centroid
+        psf_x_grid = psf_x_grid - recenter_shift
+        X_st = X_st - recenter_shift
+        centres = centres + recenter_shift
         psf_centroid = 0.0
 
     return dict(
@@ -267,6 +268,8 @@ def compute_psf_chunk_pixel(
         psf_cov=psf_cov,
         psf_centroid=psf_centroid,
         psf_centroid_err=psf_centroid_err,
+        psf_area_norm=psf_area_norm,
+        recenter_shift=recenter_shift,
         model=model,
         residuals=residuals,
         rms=rms,

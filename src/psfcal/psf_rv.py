@@ -234,7 +234,7 @@ def compute_psf_chunk_rv(
         if verbose:
             print(f"   RMS = {rms_tmp:.3f} sigma")
 
-    psf_mean, psf_std, psf_cov = _gp.area_normalise(psf_x_grid, psf_mean, psf_std, psf_cov=psf_cov)
+    psf_mean, psf_std, psf_cov, psf_area_norm = _gp.area_normalise(psf_x_grid, psf_mean, psf_std, psf_cov=psf_cov)
 
     psf_centroid = float(
         np.trapz(psf_x_grid * psf_mean, psf_x_grid) / np.trapz(psf_mean, psf_x_grid)
@@ -260,6 +260,7 @@ def compute_psf_chunk_rv(
     residuals = (y_sub - model) / np.clip(y_err, 1e-30, None)
     rms = float(np.sqrt(np.nanmean(residuals ** 2)))
 
+    recenter_shift = 0.0
     if recenter and psf_centroid != 0.0:
         # Plain post-hoc translation (not the Eq.20 loop above) so the
         # returned PSF's own centroid sits at exactly 0 m/s. theory_wav is
@@ -267,10 +268,10 @@ def compute_psf_chunk_rv(
         # returned theory_wavelengths reproduces the same, now-centred,
         # anchor -- model/line_amps (already built above) are unaffected
         # (translation-invariant).
-        shift = psf_centroid
-        psf_x_grid = psf_x_grid - shift
-        X_st = X_st - shift
-        theory_wav = theory_wav * (1.0 + shift / _kernel.C_LIGHT_MPS)
+        recenter_shift = psf_centroid
+        psf_x_grid = psf_x_grid - recenter_shift
+        X_st = X_st - recenter_shift
+        theory_wav = theory_wav * (1.0 + recenter_shift / _kernel.C_LIGHT_MPS)
         psf_centroid = 0.0
 
     return dict(
@@ -280,6 +281,8 @@ def compute_psf_chunk_rv(
         psf_std=psf_std,
         psf_cov=psf_cov,
         psf_centroid=psf_centroid,
+        psf_area_norm=psf_area_norm,
+        recenter_shift=recenter_shift,
         psf_centroid_err=psf_centroid_err,
         n_lines_used=len(peak_idx),
         line_windows=windows,

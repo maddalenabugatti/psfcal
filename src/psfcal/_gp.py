@@ -465,16 +465,23 @@ def area_normalise(
     psf_mean: np.ndarray,
     psf_std: np.ndarray,
     psf_cov: np.ndarray | None = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray | None, float]:
     """
     Normalise the PSF to unit area and propagate the uncertainty.
 
     For g = f / A with A = w^T f (trapezoid weights), the Jacobian is
     J = I/A - (f w^T)/A^2, and cov_norm = J . cov . J^T.
+
+    Returns ``(mean_norm, std_norm, cov_norm, area)`` -- ``area`` is the
+    divisor applied (1.0 if normalisation was skipped because area <= 0),
+    needed by callers that want to compare pre-normalisation quantities
+    (e.g. stacked_y, or the raw mean function) on the same footing as the
+    normalised PSF: ``quantity / area`` puts it on the post-normalisation
+    scale.
     """
     area = np.trapz(psf_mean, psf_x)
     if area <= 0:
-        return psf_mean, psf_std, psf_cov
+        return psf_mean, psf_std, psf_cov, 1.0
 
     mean_norm = psf_mean / area
 
@@ -496,4 +503,4 @@ def area_normalise(
         )
         cov_norm = np.diag(std_norm ** 2)
 
-    return mean_norm, std_norm, cov_norm
+    return mean_norm, std_norm, cov_norm, float(area)

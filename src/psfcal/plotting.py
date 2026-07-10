@@ -30,22 +30,22 @@ def plot_psf(
     """
     Top panel: stacked data + GP model. Bottom panel: normalised residuals.
 
-    ``stacked_y`` (psi_hat, Eq. 10 -- a pixel-flux ratio) and ``psf_mean``
-    (area-normalised over ``psf_x``, Eq. 17) are not generally on the same
-    numerical scale: for a pixel-space result they happen to be
-    comparable, but for an RV-space result ``psf_x`` spans thousands of
-    m/s, so an area-normalised (integral = 1) curve over that width is
-    naturally ~1000x smaller in peak height than psi_hat, even though both
-    are individually correct. Rather than a second axis (whose scale would
-    then also have to accommodate the mean function/correction term below,
-    which can independently swing far larger than ``psf_mean`` itself),
-    the stacked data is rescaled by the ratio of their peak heights so
-    both sit on one shared, honestly-labelled axis.
+    ``stacked_y`` (psi_hat, Eq. 10) is on the scale the GP was actually
+    trained on -- *before* ``psf_mean``'s area normalisation (Eq. 17,
+    dividing by ``psf_result["psf_area_norm"]``). Comparing them directly
+    either makes the data look artificially huge relative to psf_mean, or
+    (worse) makes the bottom-panel residuals look enormous even for a good
+    fit, since ``stacked_y`` hasn't been put on the same footing as the
+    normalised curve it's being differenced against. Both stacked_y and
+    stacked_yerr are divided by ``psf_area_norm`` here so the comparison
+    (and the residuals) are correct.
 
     ``show_mean`` (default False) additionally plots the Gaussian mean
-    function m(x) and the GP correction psi-m -- off by default since
-    their natural scale can differ wildly from psf_mean's (see above),
-    which otherwise dominates the axis and makes psf_mean look flat.
+    function m(x) and the GP correction psi-m, normalised by the same
+    ``psf_area_norm`` and evaluated at the pre-recentring location (via
+    ``psf_result["recenter_shift"]``) so they land on the same scale and
+    offset as ``psf_mean`` rather than their own, generally much larger,
+    natural scale.
     """
     sx = psf_result["stacked_x"]
     sy = psf_result["stacked_y"]
@@ -53,37 +53,27 @@ def plot_psf(
     px = psf_result["psf_x"]
     py = psf_result["psf_mean"]
     pe = psf_result["psf_std"]
+    area_norm = psf_result.get("psf_area_norm", 1.0) or 1.0
+
+    sy_n = sy / area_norm
+    syerr_n = syerr / area_norm
 
     fig, (ax1, ax2) = plt.subplots(
         2, 1, figsize=figsize, sharex=True,
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
     )
 
-    data_scale = float(np.nanmax(np.abs(sy))) if len(sy) else 0.0
-    psf_scale = float(np.nanmax(np.abs(py))) if len(py) else 0.0
-    rescale = (
-        psf_scale / data_scale
-        if data_scale > 0 and psf_scale > 0 and data_scale / psf_scale > 3.0
-        else 1.0
-    )
-
-    if rescale != 1.0:
-        ax1.errorbar(sx, sy * rescale, yerr=syerr * rescale, fmt=".", ms=3, color="0.45",
-                     elinewidth=0.4, alpha=0.6,
-                     label=rf"$\hat\psi$ data ($\times${rescale:.2g})", zorder=2)
-        ax1.set_ylabel(r"Empirical IP $\psi$ (area-normalised)")
-    else:
-        ax1.errorbar(sx, sy, yerr=syerr, fmt=".", ms=3, color="0.45",
-                     elinewidth=0.4, alpha=0.6, label=r"$\hat\psi$ data", zorder=2)
-        ax1.set_ylabel(r"$\hat\psi$ / Empirical IP $\psi$")
-
+    ax1.errorbar(sx, sy_n, yerr=syerr_n, fmt=".", ms=3, color="0.45",
+                 elinewidth=0.4, alpha=0.6, label="y data", zorder=2)
+    ax1.set_ylabel(r"Empirical IP $\psi$ (area-normalised)")
     ax1.plot(px, py, color="firebrick", lw=1.8, label=r"Empirical IP $\psi$", zorder=4)
 
     if show_mean:
         theta = psf_result.get("theta")
         if theta:
             import jax.numpy as jnp
-            m_vals = np.array(_gp.gaussian_mean(theta, jnp.array(px)))
+            shift = psf_result.get("recenter_shift", 0.0)
+            m_vals = np.array(_gp.gaussian_mean(theta, jnp.array(px) + shift)) / area_norm
             ax1.plot(px, m_vals, color="steelblue", lw=1.2, ls="--", label="Mean fn $m(x)$", zorder=3)
             ax1.plot(px, py - m_vals, color="mediumpurple", lw=1.0, ls=":",
                      label=r"$\psi - m$", zorder=3)
@@ -95,7 +85,7 @@ def plot_psf(
     ax1.set_title(title)
 
     spl = CubicSpline(px, py)
-    res = (sy - spl(sx)) / np.clip(syerr, 1e-30, None)
+    res = (sy_n - spl(sx)) / np.clip(syerr_n, 1e-30, None)
     ax2.scatter(sx, res, s=6, color="0.25", alpha=0.7, zorder=2)
     ax2.axhline(0, color="firebrick", lw=1.5, zorder=3)
     ax2.axhspan(-1, 1, color="steelblue", alpha=0.12, zorder=0)
@@ -138,10 +128,13 @@ def plot_line_fit(
     residuals (a no-op if background subtraction wasn't used).
 
     ``trim_to_windows`` (default True) drops pixels before the first
-    line's window and after the last line's window: those pixels were
-    never part of any line's stacking window, so ``model`` is 0 there
-    regardless of the (nonzero) data, which otherwise shows up as huge
-    spurious residuals at the very edges of the plot.
+    *complete* line's window and after the last *complete* one: pixels
+    outside any line's window were never part of the stacking (``model``
+    is 0 there regardless of the nonzero data, producing huge spurious
+    residuals at the plot's edges), and a line whose own window touches
+    the raw chunk's edge (index 0 or the last index) is dropped too --
+    its outer flank was never actually observed (the chunk starts/ends
+    mid-line), so it renders as a visibly truncated, incomplete peak.
     """
     if "model" not in psf_result:
         raise KeyError("psf_result has no 'model' key (only compute_psf_chunk_pixel results have one).")
@@ -158,7 +151,13 @@ def plot_line_fit(
 
     windows = psf_result.get("line_windows")
     if trim_to_windows and windows is not None and len(windows) > 0:
-        lo_idx, hi_idx = int(windows[0, 0]), int(windows[-1, 1])
+        first_k, last_k = 0, len(windows) - 1
+        n_total = len(x_data)
+        if windows[first_k, 0] <= 0 and first_k < last_k:
+            first_k += 1
+        if windows[last_k, 1] >= n_total - 1 and last_k > first_k:
+            last_k -= 1
+        lo_idx, hi_idx = int(windows[first_k, 0]), int(windows[last_k, 1])
         keep = slice(lo_idx, hi_idx + 1)
         x_data, y_data, y_err, model = x_data[keep], y_data[keep], y_err[keep], model[keep]
 
