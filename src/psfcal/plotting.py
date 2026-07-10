@@ -25,6 +25,7 @@ def plot_psf(
     psf_result: dict,
     title: str = "IP reconstruction (area-normalised)",
     show_mean: bool = False,
+    robust_ylim: bool = True,
     figsize=(7, 6),
 ):
     """
@@ -46,6 +47,14 @@ def plot_psf(
     ``psf_result["recenter_shift"]``) so they land on the same scale and
     offset as ``psf_mean`` rather than their own, generally much larger,
     natural scale.
+
+    ``robust_ylim`` (default True) sets the y-axis range from the fitted
+    curve and the data's own central values (a 0.5-99.5 percentile), not
+    from how far any single error bar whisker extends -- a handful of
+    pixels with genuinely large propagated flux uncertainty (bad/noisy
+    pixels, cosmic ray hits, etc.) otherwise blow out the axis and make
+    everything else hard to read; those points are still plotted, just
+    potentially with their error whisker extending past the frame.
     """
     sx = psf_result["stacked_x"]
     sy = psf_result["stacked_y"]
@@ -83,6 +92,14 @@ def plot_psf(
     ax1.axhline(0, color="k", lw=0.6, ls=":")
     ax1.legend(fontsize=8)
     ax1.set_title(title)
+
+    if robust_ylim:
+        y_vals = np.concatenate([py, sy_n]) if len(sy_n) else py
+        y_vals = y_vals[np.isfinite(y_vals)]
+        if len(y_vals):
+            ylo, yhi = np.percentile(y_vals, [0.5, 99.5])
+            margin = 0.15 * max(yhi - ylo, 1e-30)
+            ax1.set_ylim(min(0.0, ylo - margin), yhi + margin)
 
     spl = CubicSpline(px, py)
     res = (sy_n - spl(sx)) / np.clip(syerr_n, 1e-30, None)
