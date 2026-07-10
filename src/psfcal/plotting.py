@@ -21,10 +21,14 @@ from scipy.interpolate import CubicSpline
 from . import _gp
 
 
-def plot_psf(psf_result: dict, title: str = "IP reconstruction (area-normalised)", figsize=(7, 6)):
+def plot_psf(
+    psf_result: dict,
+    title: str = "IP reconstruction (area-normalised)",
+    show_mean: bool = False,
+    figsize=(7, 6),
+):
     """
-    Top panel: stacked data + GP model (+ mean function, if ``theta`` is
-    present). Bottom panel: normalised residuals.
+    Top panel: stacked data + GP model. Bottom panel: normalised residuals.
 
     ``stacked_y`` (psi_hat, Eq. 10 -- a pixel-flux ratio) and ``psf_mean``
     (area-normalised over ``psf_x``, Eq. 17) are not generally on the same
@@ -32,8 +36,16 @@ def plot_psf(psf_result: dict, title: str = "IP reconstruction (area-normalised)
     comparable, but for an RV-space result ``psf_x`` spans thousands of
     m/s, so an area-normalised (integral = 1) curve over that width is
     naturally ~1000x smaller in peak height than psi_hat, even though both
-    are individually correct. When the two differ by more than 3x, the PSF
-    curves are drawn on a separate right-hand axis so both stay visible.
+    are individually correct. Rather than a second axis (whose scale would
+    then also have to accommodate the mean function/correction term below,
+    which can independently swing far larger than ``psf_mean`` itself),
+    the stacked data is rescaled by the ratio of their peak heights so
+    both sit on one shared, honestly-labelled axis.
+
+    ``show_mean`` (default False) additionally plots the Gaussian mean
+    function m(x) and the GP correction psi-m -- off by default since
+    their natural scale can differ wildly from psf_mean's (see above),
+    which otherwise dominates the axis and makes psf_mean look flat.
     """
     sx = psf_result["stacked_x"]
     sy = psf_result["stacked_y"]
@@ -47,39 +59,39 @@ def plot_psf(psf_result: dict, title: str = "IP reconstruction (area-normalised)
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
     )
 
-    ax1.errorbar(sx, sy, yerr=syerr, fmt=".", ms=3, color="0.45",
-                 elinewidth=0.4, alpha=0.6, label=r"$\hat\psi$ data", zorder=2)
-    ax1.set_ylabel(r"$\hat\psi$ (pixel-flux ratio)")
-
     data_scale = float(np.nanmax(np.abs(sy))) if len(sy) else 0.0
     psf_scale = float(np.nanmax(np.abs(py))) if len(py) else 0.0
-    use_twin = data_scale > 0 and psf_scale > 0 and (
-        data_scale / psf_scale > 3.0 or psf_scale / data_scale > 3.0
+    rescale = (
+        psf_scale / data_scale
+        if data_scale > 0 and psf_scale > 0 and data_scale / psf_scale > 3.0
+        else 1.0
     )
-    ax_psf = ax1.twinx() if use_twin else ax1
 
-    ax_psf.plot(px, py, color="firebrick", lw=1.8, label=r"Empirical IP $\psi$", zorder=4)
+    if rescale != 1.0:
+        ax1.errorbar(sx, sy * rescale, yerr=syerr * rescale, fmt=".", ms=3, color="0.45",
+                     elinewidth=0.4, alpha=0.6,
+                     label=rf"$\hat\psi$ data ($\times${rescale:.2g})", zorder=2)
+        ax1.set_ylabel(r"Empirical IP $\psi$ (area-normalised)")
+    else:
+        ax1.errorbar(sx, sy, yerr=syerr, fmt=".", ms=3, color="0.45",
+                     elinewidth=0.4, alpha=0.6, label=r"$\hat\psi$ data", zorder=2)
+        ax1.set_ylabel(r"$\hat\psi$ / Empirical IP $\psi$")
 
-    theta = psf_result.get("theta")
-    if theta:
-        import jax.numpy as jnp
-        m_vals = np.array(_gp.gaussian_mean(theta, jnp.array(px)))
-        ax_psf.plot(px, m_vals, color="steelblue", lw=1.2, ls="--", label="Mean fn $m(x)$", zorder=3)
-        ax_psf.plot(px, py - m_vals, color="mediumpurple", lw=1.0, ls=":",
-                    label=r"$\psi - m$", zorder=3)
+    ax1.plot(px, py, color="firebrick", lw=1.8, label=r"Empirical IP $\psi$", zorder=4)
+
+    if show_mean:
+        theta = psf_result.get("theta")
+        if theta:
+            import jax.numpy as jnp
+            m_vals = np.array(_gp.gaussian_mean(theta, jnp.array(px)))
+            ax1.plot(px, m_vals, color="steelblue", lw=1.2, ls="--", label="Mean fn $m(x)$", zorder=3)
+            ax1.plot(px, py - m_vals, color="mediumpurple", lw=1.0, ls=":",
+                     label=r"$\psi - m$", zorder=3)
 
     if np.any(pe > 0):
-        ax_psf.fill_between(px, py - pe, py + pe, alpha=0.20, color="firebrick")
+        ax1.fill_between(px, py - pe, py + pe, alpha=0.20, color="firebrick")
     ax1.axhline(0, color="k", lw=0.6, ls=":")
-
-    if use_twin:
-        ax_psf.set_ylabel(r"Empirical IP $\psi$ (area-normalised)", color="firebrick")
-        ax_psf.tick_params(axis="y", labelcolor="firebrick")
-        h1, l1 = ax1.get_legend_handles_labels()
-        h2, l2 = ax_psf.get_legend_handles_labels()
-        ax1.legend(h1 + h2, l1 + l2, fontsize=8)
-    else:
-        ax1.legend(fontsize=8)
+    ax1.legend(fontsize=8)
     ax1.set_title(title)
 
     spl = CubicSpline(px, py)
