@@ -160,10 +160,17 @@ def train_primary_gp(
     loc0 = float(mf_loc_init) if mf_loc_init is not None else 0.0
     X_lo, X_hi = float(np.min(X)), float(np.max(X))
     X_range = max(X_hi - X_lo, 1e-6)
+    # Cap the mean-function width to the same physically-sensible line-width
+    # range as the GP kernel's length scale (gp_log_scale_bounds), not the
+    # full data span: a width up to X_range let the bootstrap fit (and
+    # later the mean-function's own theta bounds, below) converge on an
+    # absurdly wide "line" spanning the whole chunk whenever the GP kernel
+    # amplitude got starved to ~0, since nothing else constrained it.
+    tau_hi = min(X_range, float(np.exp(gp_log_scale_bounds[1])))
     p0 = (
         max(float(np.max(Y)), 1e-12),
         float(np.clip(loc0, X_lo, X_hi)),
-        float(np.clip(max(float(np.std(X)) / 3.0, 0.1), 1e-6, X_range)),
+        float(np.clip(max(float(np.std(X)) / 3.0, 0.1), 1e-6, tau_hi)),
         0.0,
     )
     # Bounded (amplitude >= 0 in particular -- see mf_amp note below) so
@@ -171,7 +178,7 @@ def train_primary_gp(
     # data (Y values ~1e-4, X spanning thousands of units) unconstrained
     # least-squares has been observed to converge to wildly wrong-signed,
     # wrong-scale parameters.
-    bounds = ((0.0, X_lo, 1e-6, -np.inf), (np.inf, X_hi, X_range, np.inf))
+    bounds = ((0.0, X_lo, 1e-6, -np.inf), (np.inf, X_hi, tau_hi, np.inf))
     try:
         popt, pcov = curve_fit(
             _gauss_np, X, Y, sigma=sigma_i, p0=p0, bounds=bounds,
@@ -188,12 +195,40 @@ def train_primary_gp(
     gp_lo, gp_hi = gp_log_scale_bounds
     gp_log_scale_init = float(np.clip(np.log(max(abs(popt[2]), 1e-8)), gp_lo, gp_hi))
 
+    # gp_log_amp (the GP kernel's own amplitude) must be scaled to Y's
+    # actual variance, exactly like gp_log_scale is scaled to X's units --
+    # a hardcoded absolute range (e.g. the paper's pixel-space [-4, 4])
+    # can be wildly mismatched to Y for RV-space stacks, whose scale
+    # varies a lot with domain width/SNR. Observed in practice: fixed at
+    # [-4, 4], the kernel amplitude got pinned at the lower bound for one
+    # RV chunk (real data was smaller still), starving the GP's flexible
+    # correction term entirely and forcing the parametric mean function
+    # to explain the whole stack alone -- it responded by blowing up into
+    # an absurdly wide, offset Gaussian instead of tracking the line.
+    y_scale = max(float(np.std(Y)), 1e-12)
+    gp_log_amp_init = float(np.log(y_scale))
+    gp_log_amp_lo = gp_log_amp_init - 4.0
+    gp_log_amp_hi = gp_log_amp_init + 4.0
+
+    # mf_log_sig (the mean function's own width) is likewise capped to the
+    # same physically-sensible line-width range as the kernel length scale
+    # -- the kappa*perr window alone doesn't prevent it drifting far
+    # outside that range (see tau_hi note above); take the intersection,
+    # falling back to the full kernel range if kappa*perr excludes it
+    # entirely (a poorly-constrained bootstrap fit).
+    mf_log_sig_est = float(np.log(max(abs(popt[2]), 1e-4)))
+    mf_log_sig_lo = max(float(np.log(max(abs(popt[2]) - kappa * perr[2], 1e-4))), gp_lo)
+    mf_log_sig_hi = min(float(np.log(abs(popt[2]) + kappa * perr[2] + 1e-4)), gp_hi)
+    if mf_log_sig_hi <= mf_log_sig_lo:
+        mf_log_sig_lo, mf_log_sig_hi = gp_lo, gp_hi
+    mf_log_sig_init = float(np.clip(mf_log_sig_est, mf_log_sig_lo, mf_log_sig_hi))
+
     theta0 = dict(
         mf_amp=max(0.0, float(popt[0])),
         mf_loc=float(popt[1]),
-        mf_log_sig=float(np.log(max(abs(popt[2]), 1e-4))),
+        mf_log_sig=mf_log_sig_init,
         mf_y0=float(popt[3]),
-        gp_log_amp=1.0,
+        gp_log_amp=gp_log_amp_init,
         gp_log_scale=gp_log_scale_init,
         log_sigma0=-5.0,
     )
@@ -208,18 +243,18 @@ def train_primary_gp(
         # (mean + correction) collapsed to ~0 everywhere.
         mf_amp=max(0.0, float(popt[0] - kappa * perr[0])),
         mf_loc=float(popt[1] - kappa * perr[1]),
-        mf_log_sig=float(np.log(max(abs(popt[2]) - kappa * perr[2], 1e-4))),
+        mf_log_sig=mf_log_sig_lo,
         mf_y0=float(popt[3] - kappa * perr[3]),
-        gp_log_amp=-4.0,
+        gp_log_amp=gp_log_amp_lo,
         gp_log_scale=gp_lo,
         log_sigma0=-15.0,
     )
     upper = dict(
         mf_amp=float(popt[0] + kappa * perr[0]),
         mf_loc=float(popt[1] + kappa * perr[1]),
-        mf_log_sig=float(np.log(abs(popt[2]) + kappa * perr[2] + 1e-4)),
+        mf_log_sig=mf_log_sig_hi,
         mf_y0=float(popt[3] + kappa * perr[3]),
-        gp_log_amp=4.0,
+        gp_log_amp=gp_log_amp_hi,
         gp_log_scale=gp_hi,
         log_sigma0=1.5,
     )
