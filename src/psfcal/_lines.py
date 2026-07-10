@@ -33,6 +33,7 @@ def detect_lines_pixel(
     min_peak_distance: int = 3,
     min_peak_height_fraction: float = 0.05,
     max_half_window: int | None = 15,
+    min_window_width: int | None = 6,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Returns ``(peak_indices, windows)``.
@@ -41,6 +42,12 @@ def detect_lines_pixel(
     pixel-index bounds, one independently-found window per peak (see
     :func:`line_windows`). Slice line ``k``'s data as ``x[l:r+1]`` with
     ``l, r = windows[k]``.
+
+    Lines that can't be trusted for a clean single-line profile are
+    dropped before returning (see :func:`drop_incomplete_lines`): the
+    first/last line if its window touches the chunk's own edge, and any
+    line whose window is narrower than ``min_window_width`` (usually an
+    unusually close neighbour truncating it well short of a real trough).
     """
     threshold = min_peak_height_fraction * np.nanmax(y)
     peak_idx, _ = signal.find_peaks(y, distance=min_peak_distance, height=threshold)
@@ -50,7 +57,61 @@ def detect_lines_pixel(
         )
 
     windows = line_windows(y, peak_idx, max_half_window=max_half_window)
+    peak_idx, windows = drop_incomplete_lines(y, peak_idx, windows, min_window_width)
     return peak_idx, windows
+
+
+def complete_line_mask(
+    y: np.ndarray,
+    windows: np.ndarray,
+    min_window_width: int | None = 6,
+) -> np.ndarray:
+    """
+    Boolean mask (True = keep) flagging lines whose window can't be
+    trusted for a clean single-line profile:
+
+    - the first/last line, if its window touches the raw array's edge
+      (index 0 or the last index) -- its outer flank was never actually
+      observed (the chunk starts/ends mid-line), so it's an incomplete
+      peak, not just a narrow one;
+    - any line whose window is narrower than ``min_window_width`` pixels
+      (``None`` disables this check) -- usually a sign of an unusually
+      close neighbour truncating the window well short of a real trough,
+      which gives a systematically wrong integrated-flux normalisation
+      (f* in Eq. 10, computed over the truncated window) and shows up as
+      inconsistent-looking "banding" in the stacked psi_hat once mixed in
+      with normally-sampled lines.
+
+    Never drops every line (returns all-True if the filters would remove
+    everything) -- callers should apply the same mask to every per-line
+    array (peak_idx, windows, and anything else indexed the same way) to
+    keep them aligned.
+    """
+    n = len(y)
+    keep = np.ones(len(windows), dtype=bool)
+    if len(windows) > 0:
+        if windows[0, 0] <= 0:
+            keep[0] = False
+        if windows[-1, 1] >= n - 1:
+            keep[-1] = False
+    if min_window_width is not None:
+        widths = windows[:, 1] - windows[:, 0]
+        keep &= widths >= min_window_width
+    if not np.any(keep):
+        return np.ones(len(windows), dtype=bool)
+    return keep
+
+
+def drop_incomplete_lines(
+    y: np.ndarray,
+    peak_idx: np.ndarray,
+    windows: np.ndarray,
+    min_window_width: int | None = 6,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Convenience wrapper around :func:`complete_line_mask` for the common
+    (peak_idx, windows) pair; see there for what gets dropped and why."""
+    keep = complete_line_mask(y, windows, min_window_width)
+    return peak_idx[keep], windows[keep]
 
 
 # ─────────────────────────────────────────────────────────────

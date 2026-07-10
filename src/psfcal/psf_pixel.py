@@ -37,6 +37,7 @@ def compute_psf_chunk_pixel(
     min_window_half: int = 3,
     min_quantile: float = 0.01,
     max_half_window: int | None = 15,
+    min_window_width: int | None = 6,
     recenter: bool = True,
     verbose: bool = False,
 ) -> dict:
@@ -87,6 +88,13 @@ def compute_psf_chunk_pixel(
         showing up as extra bumps in the wings of the reconstructed PSF.
         ``None`` disables the cap (window extends to the true trough
         against the neighbouring *detected* peak, whatever the distance).
+    min_window_width : drop lines whose window is narrower than this many
+        pixels (usually an unusually close neighbour truncating the
+        window well short of a real trough, which biases that line's
+        integrated-flux normalisation, Eq. 10) -- also always drops the
+        first/last line if its window touches the chunk's own edge (an
+        unobserved outer flank), regardless of this setting. ``None``
+        disables the width check (edge-touching lines are still dropped).
 
     Returns
     -------
@@ -110,6 +118,7 @@ def compute_psf_chunk_pixel(
         min_peak_distance=min_peak_distance,
         min_peak_height_fraction=min_peak_height_fraction,
         max_half_window=max_half_window,
+        min_window_width=min_window_width,
     )
     if verbose:
         print(f"Detected {len(peak_idx)} lines.")

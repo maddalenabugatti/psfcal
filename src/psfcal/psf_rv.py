@@ -39,6 +39,7 @@ def compute_psf_chunk_rv(
     recentre_tol: float = 1e-3,
     gp_length_scale_bounds_mps: tuple = (50.0, 5000.0),
     max_half_window: int | None = 15,
+    min_window_width: int | None = 6,
     recenter: bool = True,
     verbose: bool = False,
 ) -> dict:
@@ -70,6 +71,11 @@ def compute_psf_chunk_rv(
         how far its stacking window can extend (see :func:`psfcal._lines.
         line_windows`) — prevents a missed/unmatched neighbouring line
         from leaking into this line's window. ``None`` disables the cap.
+    min_window_width : drop lines whose window is narrower than this many
+        pixels, plus always the first/last line if its window touches the
+        chunk's own edge -- see :func:`psfcal._lines.complete_line_mask`.
+        ``None`` disables the width check (edge-touching lines are still
+        dropped).
     recenter : if True (default), shift the returned ``psf_x`` (and
         ``stacked_x``, ``theory_wavelengths``) as a final step so the
         PSF's own area (trapz) centroid sits at exactly 0 m/s -- corrects
@@ -112,6 +118,15 @@ def compute_psf_chunk_rv(
         print(f"Matched {len(peak_idx)} theoretical lines.")
 
     windows = _lines.line_windows(y, peak_idx, max_half_window=max_half_window)
+    keep = _lines.complete_line_mask(y, windows, min_window_width=min_window_width)
+    peak_idx, theory_x, theory_wav, windows = (
+        peak_idx[keep], theory_x[keep], theory_wav[keep], windows[keep]
+    )
+    if len(peak_idx) < 2:
+        raise ValueError(
+            "Fewer than 2 complete matched theoretical lines in this chunk after "
+            "dropping incomplete/truncated windows — cannot build a PSF."
+        )
     background = _lines.estimate_background(
         x, y, windows, half=min_window_half, q=min_quantile,
     )
