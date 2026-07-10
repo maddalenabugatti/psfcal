@@ -210,7 +210,7 @@ def stack_lines_pixel(
     y_err: np.ndarray,
     peak_idx: np.ndarray,
     windows: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Stack all lines on their (Gaussian) centres, normalised by integrated
     flux f* = sum(F_i - B_i)  (Eq. 10).  sigma_psi_hat^2 = sigma_F^2 / f*^2
@@ -219,10 +219,18 @@ def stack_lines_pixel(
     ``windows`` is the ``(n_peaks, 2)`` inclusive ``[left, right]`` bound
     array from :func:`line_windows` / :func:`detect_lines_pixel`.
 
-    Returns (stacked_dx, stacked_psi_hat, stacked_sigma_psi_hat, centres, amplitudes).
+    Lines with too few points or a non-finite/non-positive integrated flux
+    are dropped. Returns ``(stacked_dx, stacked_psi_hat,
+    stacked_sigma_psi_hat, centres, amplitudes, valid_windows)`` --
+    ``valid_windows`` is ``windows`` filtered down to the same lines as
+    ``centres``/``amplitudes``, in the same order, so callers (e.g.
+    :func:`restack_lines`, :func:`fit_all_lines`) index them consistently.
+    Passing the *original*, unfiltered ``windows`` back in for a later
+    restack/refit call silently pairs each surviving line with the wrong
+    window as soon as any earlier line was dropped.
     """
     X_all, Y_all, E_all = [], [], []
-    centres, amplitudes = [], []
+    centres, amplitudes, valid_windows = [], [], []
 
     for k in range(len(peak_idx)):
         l, r = windows[k]
@@ -247,6 +255,7 @@ def stack_lines_pixel(
         E_all.append(sigma_psi)
         centres.append(float(cen))
         amplitudes.append(float(f_star))
+        valid_windows.append((l, r))
 
     if not X_all:
         raise ValueError("No valid lines could be stacked.")
@@ -257,7 +266,8 @@ def stack_lines_pixel(
     order = np.argsort(X_st)
 
     return (X_st[order], Y_st[order], E_st[order],
-            np.array(centres), np.array(amplitudes))
+            np.array(centres), np.array(amplitudes),
+            np.array(valid_windows, dtype=int))
 
 
 def restack_lines(

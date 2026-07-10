@@ -122,9 +122,15 @@ def compute_psf_chunk_pixel(
     else:
         background = np.zeros_like(y)
 
-    X_st, Y_st, E_st, centres, amplitudes = _lines.stack_lines_pixel(
+    X_st, Y_st, E_st, centres, amplitudes, windows = _lines.stack_lines_pixel(
         x, y, y_err, peak_idx, windows,
     )
+    # stack_lines_pixel drops lines with too few points or an invalid
+    # integrated flux; `windows` is reassigned to its filtered, aligned
+    # return value so every later fit_all_lines/restack_lines call indexes
+    # windows[k] against the SAME line as centres[k]/amplitudes[k] -- using
+    # the original, unfiltered windows here would silently mis-pair lines
+    # (and desync array lengths) as soon as any line was dropped.
 
     theta = None
     model = np.zeros_like(y)
