@@ -30,6 +30,28 @@ Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
 | 7 | `convolve_chunk_rv(flux, ip_v, ip_y, wave_chunk=..., ...)` | Forward-convolve a chunk with an RV-space PSF |
 | 8 | `compute_rv_shift(wave1, flux1, wave2, flux2, ...)` | RV shift between two spectra via cross-correlation + Gaussian peak fit |
 
+### Multi-order/multi-chunk cube helpers
+
+Thin orchestration layer over items 1/2 — loops over chunks and orders and
+assembles the results into a cube compatible with `deconvolve_order`.
+
+| Function | Purpose |
+|----------|---------|
+| `compute_psf_cube_pixel(flux, err, orders_1based, n_chunks=32, ...)` | Run `compute_psf_chunk_pixel` over every chunk of every order |
+| `compute_psf_cube_rv(flux, err, wave, orders_1based, theoretical_wavelengths=..., n_chunks=32, ...)` | Run `compute_psf_chunk_rv` over every chunk of every order |
+| `make_chunk_edges(n_pix, n_chunks, margin=0)` | Split one order into chunk index ranges (with/without margin) |
+| `generate_lfc_wavelengths(wave_min, wave_max, nu0, delta_nu)` | Theoretical LFC comb wavelengths from the comb equation |
+
+```python
+cube = psfcal.compute_psf_cube_pixel(flux, err, orders_1based=[1, 2, 3], n_chunks=32)
+# cube["psi_cube"], cube["dx_cube"], cube["chunk_edges"], cube["ok"] feed
+# straight into deconvolve_order, one order (index i) at a time:
+deconv = psfcal.deconvolve_order(
+    flux[orders_1based[i] - 1], cube["psi_cube"][i], cube["dx_cube"][i],
+    cube["chunk_edges"], scale="pixel", ok_chunks=cube["ok"][i],
+)
+```
+
 ```python
 import psfcal
 
