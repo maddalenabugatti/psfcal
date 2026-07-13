@@ -37,6 +37,7 @@ def deconvolve_chunk_pixel(
     overlap_pix: Optional[int] = None,
     continuum_normalize: bool = True,
     cont_kernel_size: int = _continuum.CONT_MEDFILT_KSIZE,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Richardson-Lucy deconvolve a single chunk's flux with a pixel-space PSF.
@@ -62,13 +63,20 @@ def deconvolve_chunk_pixel(
         lower ``l2_damp`` by roughly the same factor your flux is above
         O(1), or the deconvolved spectrum will come out systematically
         too faint.
+    recenter : if True (default), shift ``psf_x``/``psf_y`` to their own
+        centroid before building the discrete kernel (see
+        :func:`psfcal._kernel.psf_to_integer_pixel_kernel`). Set False to
+        use the PSF exactly as given -- e.g. if it was computed with
+        ``compute_psf_chunk_pixel(..., recenter=False)`` and you want to
+        preserve a deliberate, real offset rather than have it silently
+        discarded here.
     """
     flux = np.asarray(flux, float)
 
     if not np.isfinite(psf_y).any() or np.nanmax(psf_y) <= 0:
         k_pix = np.array([1.0])
     else:
-        k_pix = _kernel.psf_to_integer_pixel_kernel(psf_x, psf_y, pixel_radius=pixel_radius)
+        k_pix = _kernel.psf_to_integer_pixel_kernel(psf_x, psf_y, pixel_radius=pixel_radius, recenter=recenter)
 
     work, cont = _continuum_split(flux, continuum_normalize, cont_kernel_size)
 
@@ -94,6 +102,7 @@ def deconvolve_chunk_rv(
     overlap_pix: Optional[int] = None,
     continuum_normalize: bool = True,
     cont_kernel_size: int = _continuum.CONT_MEDFILT_KSIZE,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Richardson-Lucy deconvolve a single chunk's flux with an RV-space IP.
@@ -107,6 +116,15 @@ def deconvolve_chunk_rv(
     for continuum-normalized flux and systematically suppresses raw
     detector-count-scale output if this is disabled without also scaling
     l2_damp down.
+
+    ``recenter`` : if True (default), shift ``ip_v``/``ip_y`` to their own
+    centroid (in velocity space) before building the discrete kernel (see
+    :func:`psfcal._kernel.rv_ip_to_integer_pixel_kernel`). Set False to
+    use the IP exactly as given -- e.g. if it was computed with
+    ``compute_psf_chunk_rv(..., recenter=False)`` and you want to
+    preserve a deliberate, real offset (such as a genuine RV difference
+    between the calibration source and the assumed rest frame) rather
+    than have it silently discarded here.
     """
     flux = np.asarray(flux, float)
 
@@ -119,7 +137,9 @@ def deconvolve_chunk_rv(
     if not np.isfinite(ip_y).any() or np.nanmax(ip_y) <= 0:
         k_pix = np.array([1.0])
     else:
-        k_pix = _kernel.rv_ip_to_integer_pixel_kernel(ip_v, ip_y, mps_per_pix, pixel_radius=pixel_radius)
+        k_pix = _kernel.rv_ip_to_integer_pixel_kernel(
+            ip_v, ip_y, mps_per_pix, pixel_radius=pixel_radius, recenter=recenter,
+        )
 
     work, cont = _continuum_split(flux, continuum_normalize, cont_kernel_size)
 
@@ -147,6 +167,7 @@ def deconvolve_order(
     overlap_pix: int = OVERLAP_PIX_DEFAULT,
     continuum_normalize: bool = True,
     cont_kernel_size: int = _continuum.CONT_MEDFILT_KSIZE,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Deconvolve a full order with a different PSF per chunk, using
@@ -165,6 +186,10 @@ def deconvolve_order(
         solution, length n_pix, used to derive the local dispersion for
         each chunk.
     ok_chunks : optional (n_chunks,) validity mask.
+    recenter : if True (default), each chunk's PSF/IP is shifted to its
+        own centroid before building its discrete kernel; set False to
+        use each chunk's offset grid exactly as given (see
+        :func:`deconvolve_chunk_pixel`/:func:`deconvolve_chunk_rv`).
     """
     scale = scale.lower()
     if scale not in ("pixel", "rv", "velocity"):
@@ -199,10 +224,12 @@ def deconvolve_order(
         if not np.isfinite(psi).any() or np.nanmax(psi) <= 0:
             k_pix = np.array([1.0])
         elif scale == "pixel":
-            k_pix = _kernel.psf_to_integer_pixel_kernel(offs, psi, pixel_radius=pixel_radius)
+            k_pix = _kernel.psf_to_integer_pixel_kernel(offs, psi, pixel_radius=pixel_radius, recenter=recenter)
         else:
             mps_per_pix = _kernel.local_mps_per_pixel(wave_order, lo, hi)
-            k_pix = _kernel.rv_ip_to_integer_pixel_kernel(offs, psi, mps_per_pix, pixel_radius=pixel_radius)
+            k_pix = _kernel.rv_ip_to_integer_pixel_kernel(
+                offs, psi, mps_per_pix, pixel_radius=pixel_radius, recenter=recenter,
+            )
 
         x_chunk = rl_deconvolve_1d(y_chunk, k_pix, n_iter=rl_iters, l2_damp=l2_damp)
 

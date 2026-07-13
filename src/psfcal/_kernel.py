@@ -73,15 +73,26 @@ def psf_to_integer_pixel_kernel(
     psf_x: np.ndarray,
     psf_y: np.ndarray,
     pixel_radius: int = 7,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Resample a pixel-space PSF (arbitrary offset grid) onto integer pixel
-    offsets ``[-pixel_radius .. pixel_radius]``, centred on its centroid.
+    offsets ``[-pixel_radius .. pixel_radius]``.
+
+    If ``recenter`` (default True), the PSF is shifted to its own centroid
+    before resampling -- disable this to use ``psf_x`` as-is, e.g. if it
+    already carries a deliberate, real offset (from
+    ``compute_psf_chunk_pixel(..., recenter=False)``) that should be
+    applied during convolution/deconvolution rather than discarded.
 
     Output is non-negative and sum-normalised to 1 (a discrete convolution
     kernel).
     """
-    x, y, _ = centroid_center_psf(psf_x, psf_y)
+    if recenter:
+        x, y, _ = centroid_center_psf(psf_x, psf_y)
+    else:
+        x = np.asarray(psf_x, float)
+        y = np.clip(np.asarray(psf_y, float), 0.0, None)
     offs = np.arange(-pixel_radius, pixel_radius + 1, dtype=float)
     k = np.interp(offs, x, y, left=0.0, right=0.0)
     return normalize_nonneg_sum1(k)
@@ -149,12 +160,21 @@ def rv_ip_to_integer_pixel_kernel(
     ip_y: np.ndarray,
     mps_per_pix: float,
     pixel_radius: int = 7,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Convert an IP sampled on an arbitrary velocity grid (m/s) into a
     discrete pixel kernel defined at integer offsets ``[-R..R]``, using the
     local dispersion ``mps_per_pix`` (m/s/pixel) to rescale the velocity
     axis into a pixel-offset axis.
+
+    If ``recenter`` (default True), the IP is shifted to its own centroid
+    (in velocity space) before resampling -- disable this to use ``ip_v``
+    as-is, e.g. if it already carries a deliberate, real offset (from
+    ``compute_psf_chunk_rv(..., recenter=False)``, such as a genuine RV
+    difference between the calibration source and the assumed rest
+    frame) that should be applied during convolution/deconvolution rather
+    than discarded.
 
     Output kernel is non-negative and sum-normalised to 1.
     """
@@ -164,7 +184,11 @@ def rv_ip_to_integer_pixel_kernel(
         k[pixel_radius] = 1.0
         return k
 
-    v, y, _ = centroid_center_ip_velocity(ip_v, ip_y)
+    if recenter:
+        v, y, _ = centroid_center_ip_velocity(ip_v, ip_y)
+    else:
+        v = np.asarray(ip_v, float)
+        y = np.clip(np.asarray(ip_y, float), 0.0, None)
     x_pix = v / mps_per_pix
 
     offs = np.arange(-pixel_radius, pixel_radius + 1, dtype=float)

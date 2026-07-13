@@ -23,15 +23,23 @@ def convolve_chunk_pixel(
     psf_y,
     *,
     pixel_radius: int = PIXEL_RADIUS_DEFAULT,
+    recenter: bool = True,
 ) -> np.ndarray:
-    """Forward-convolve a chunk's flux with a pixel-space PSF."""
+    """
+    Forward-convolve a chunk's flux with a pixel-space PSF.
+
+    ``recenter`` : if True (default), shift ``psf_x``/``psf_y`` to their
+    own centroid before building the discrete kernel; set False to use
+    the PSF exactly as given (e.g. computed with
+    ``compute_psf_chunk_pixel(..., recenter=False)``).
+    """
     flux = np.asarray(flux, float)
 
     if not np.isfinite(psf_y).any() or np.nanmax(psf_y) <= 0:
         k_pix = np.zeros(2 * pixel_radius + 1, dtype=float)
         k_pix[pixel_radius] = 1.0
     else:
-        k_pix = _kernel.psf_to_integer_pixel_kernel(psf_x, psf_y, pixel_radius=pixel_radius)
+        k_pix = _kernel.psf_to_integer_pixel_kernel(psf_x, psf_y, pixel_radius=pixel_radius, recenter=recenter)
 
     pad = len(k_pix) // 2
     flux_pad = _kernel.reflect_pad(flux, pad)
@@ -47,6 +55,7 @@ def convolve_chunk_rv(
     wave_chunk=None,
     mps_per_pix: Optional[float] = None,
     pixel_radius: int = PIXEL_RADIUS_DEFAULT,
+    recenter: bool = True,
 ) -> np.ndarray:
     """
     Forward-convolve a chunk's flux with an RV-space IP.
@@ -54,6 +63,11 @@ def convolve_chunk_rv(
     Either pass ``mps_per_pix`` directly, or ``wave_chunk`` — the local
     wavelength solution over this chunk (same length as ``flux``) — from
     which the local dispersion is derived.
+
+    ``recenter`` : if True (default), shift ``ip_v``/``ip_y`` to their own
+    centroid (in velocity space) before building the discrete kernel; set
+    False to use the IP exactly as given (e.g. computed with
+    ``compute_psf_chunk_rv(..., recenter=False)``).
     """
     flux = np.asarray(flux, float)
 
@@ -67,7 +81,9 @@ def convolve_chunk_rv(
         k_pix = np.zeros(2 * pixel_radius + 1, dtype=float)
         k_pix[pixel_radius] = 1.0
     else:
-        k_pix = _kernel.rv_ip_to_integer_pixel_kernel(ip_v, ip_y, mps_per_pix, pixel_radius=pixel_radius)
+        k_pix = _kernel.rv_ip_to_integer_pixel_kernel(
+            ip_v, ip_y, mps_per_pix, pixel_radius=pixel_radius, recenter=recenter,
+        )
 
     pad = len(k_pix) // 2
     flux_pad = _kernel.reflect_pad(flux, pad)
