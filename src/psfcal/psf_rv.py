@@ -35,7 +35,7 @@ def compute_psf_chunk_rv(
     min_quantile: float = 0.01,
     use_secondary_gp: bool = True,
     min_per_bin: int = 15,
-    n_recentre_max: int = 20,
+    n_recentre_max: int = 1,
     recentre_tol: float = 1e-3,
     gp_length_scale_bounds_mps: tuple = (50.0, 5000.0),
     max_half_window: int | None = 15,

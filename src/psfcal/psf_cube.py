@@ -7,7 +7,7 @@ same way the original per-order/per-chunk driver scripts did, and
 assembling the results into a cube. No new PSF-fitting logic lives here —
 each chunk is computed by calling the existing single-chunk functions.
 
-The returned ``psi_cube``/``dx_cube``/``chunk_edges``/``ok`` feed directly
+The returned ``psf_cube``/``dx_cube``/``chunk_edges``/``ok`` feed directly
 into :func:`psfcal.deconvolve_order` (index ``[order_row]`` to get the
 per-order 2-D arrays it expects).
 """
@@ -111,7 +111,7 @@ def compute_psf_cube_pixel(
     Returns
     -------
     dict with keys:
-        psi_cube      -- (n_sel, n_chunks, n_psf_points) PSF mean
+        psf_cube      -- (n_sel, n_chunks, n_psf_points) PSF mean
         dx_cube       -- (n_sel, n_chunks, n_psf_points) pixel-offset grid
         var_cube      -- (n_sel, n_chunks, n_psf_points) PSF variance (std^2)
         ok            -- (n_sel, n_chunks) int, 1 where that chunk's fit succeeded
@@ -119,8 +119,8 @@ def compute_psf_cube_pixel(
                           shared across orders
         orders_1based -- as given, as an array
 
-    ``psi_cube[i]``/``dx_cube[i]``/``chunk_edges``/``ok[i]`` feed directly
-    into ``deconvolve_order(order_flux, psi_cube[i], dx_cube[i],
+    ``psf_cube[i]``/``dx_cube[i]``/``chunk_edges``/``ok[i]`` feed directly
+    into ``deconvolve_order(order_flux, psf_cube[i], dx_cube[i],
     chunk_edges, scale="pixel", ok_chunks=ok[i])``.
     """
     flux = np.asarray(flux, dtype=float)
@@ -130,9 +130,9 @@ def compute_psf_cube_pixel(
 
     chunks, raw_edges = make_chunk_edges(n_pix, n_chunks, chunk_margin_pix)
 
-    psi_cube = np.full((n_sel, n_chunks, n_psf_points), np.nan)
-    dx_cube = np.full_like(psi_cube, np.nan)
-    var_cube = np.full_like(psi_cube, np.nan)
+    psf_cube = np.full((n_sel, n_chunks, n_psf_points), np.nan)
+    dx_cube = np.full_like(psf_cube, np.nan)
+    var_cube = np.full_like(psf_cube, np.nan)
     ok = np.zeros((n_sel, n_chunks), dtype=np.int16)
 
     for oi, order_1b in enumerate(orders_1based):
@@ -159,13 +159,13 @@ def compute_psf_cube_pixel(
                 warnings.warn(f"order {order_1b} chunk {ci}: PSF fit failed ({exc}); skipped.")
                 continue
 
-            psi_cube[oi, ci, :] = result["psf_mean"]
+            psf_cube[oi, ci, :] = result["psf_mean"]
             dx_cube[oi, ci, :] = result["psf_x"]
             var_cube[oi, ci, :] = np.square(result["psf_std"])
             ok[oi, ci] = 1
 
     return dict(
-        psi_cube=psi_cube,
+        psf_cube=psf_cube,
         dx_cube=dx_cube,
         var_cube=var_cube,
         ok=ok,
@@ -223,7 +223,7 @@ def compute_psf_cube_rv(
     Returns
     -------
     dict with keys:
-        psi_cube      -- (n_sel, n_chunks, n_psf_points) IP mean
+        psf_cube      -- (n_sel, n_chunks, n_psf_points) IP mean
         dx_cube       -- (n_sel, n_chunks, n_psf_points) velocity-offset grid (m/s)
         var_cube      -- (n_sel, n_chunks, n_psf_points) IP variance (std^2)
         ok            -- (n_sel, n_chunks) int, 1 where that chunk's fit succeeded
@@ -232,8 +232,8 @@ def compute_psf_cube_rv(
                           shared across orders
         orders_1based -- as given, as an array
 
-    ``psi_cube[i]``/``dx_cube[i]``/``chunk_edges``/``ok[i]`` feed directly
-    into ``deconvolve_order(order_flux, psi_cube[i], dx_cube[i],
+    ``psf_cube[i]``/``dx_cube[i]``/``chunk_edges``/``ok[i]`` feed directly
+    into ``deconvolve_order(order_flux, psf_cube[i], dx_cube[i],
     chunk_edges, scale="rv", wave_order=wave[orders_1based[i]-1],
     ok_chunks=ok[i])``.
     """
@@ -255,9 +255,9 @@ def compute_psf_cube_rv(
 
     chunks, raw_edges = make_chunk_edges(n_pix, n_chunks, chunk_margin_pix)
 
-    psi_cube = np.full((n_sel, n_chunks, n_psf_points), np.nan)
-    dx_cube = np.full_like(psi_cube, np.nan)
-    var_cube = np.full_like(psi_cube, np.nan)
+    psf_cube = np.full((n_sel, n_chunks, n_psf_points), np.nan)
+    dx_cube = np.full_like(psf_cube, np.nan)
+    var_cube = np.full_like(psf_cube, np.nan)
     ok = np.zeros((n_sel, n_chunks), dtype=np.int16)
     n_lines_used = np.zeros((n_sel, n_chunks), dtype=np.int32)
 
@@ -285,14 +285,14 @@ def compute_psf_cube_rv(
                 warnings.warn(f"order {order_1b} chunk {ci}: PSF fit failed ({exc}); skipped.")
                 continue
 
-            psi_cube[oi, ci, :] = result["psf_mean"]
+            psf_cube[oi, ci, :] = result["psf_mean"]
             dx_cube[oi, ci, :] = result["psf_x"]
             var_cube[oi, ci, :] = np.square(result["psf_std"])
             n_lines_used[oi, ci] = result["n_lines_used"]
             ok[oi, ci] = 1
 
     return dict(
-        psi_cube=psi_cube,
+        psf_cube=psf_cube,
         dx_cube=dx_cube,
         var_cube=var_cube,
         ok=ok,

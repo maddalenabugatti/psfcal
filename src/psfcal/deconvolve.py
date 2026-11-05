@@ -154,7 +154,7 @@ def deconvolve_chunk_rv(
 
 def deconvolve_order(
     order_flux,
-    psi_cube,
+    psf_cube,
     offsets_cube,
     chunk_edges,
     *,
@@ -176,7 +176,7 @@ def deconvolve_order(
     Parameters
     ----------
     order_flux : 1-D array, length n_pix.
-    psi_cube : (n_chunks, n_offsets) PSF sampled per chunk.
+    psf_cube : (n_chunks, n_offsets) PSF sampled per chunk.
     offsets_cube : (n_chunks, n_offsets) offset grid per chunk (pixel
         offsets if ``scale="pixel"``, velocity offsets in m/s if
         ``scale="rv"``).
@@ -199,7 +199,7 @@ def deconvolve_order(
 
     y = np.asarray(order_flux, float)
     n_pix = y.size
-    n_chunks = int(psi_cube.shape[0])
+    n_chunks = int(psf_cube.shape[0])
 
     overlap_pix = int(max(overlap_pix, pixel_radius))
     work, cont = _continuum_split(y, continuum_normalize, cont_kernel_size)
@@ -219,16 +219,16 @@ def deconvolve_order(
         y_chunk = work[lo_exp:hi_exp]
 
         offs = offsets_cube[ci]
-        psi = psi_cube[ci]
+        psf_row = psf_cube[ci]
 
-        if not np.isfinite(psi).any() or np.nanmax(psi) <= 0:
+        if not np.isfinite(psf_row).any() or np.nanmax(psf_row) <= 0:
             k_pix = np.array([1.0])
         elif scale == "pixel":
-            k_pix = _kernel.psf_to_integer_pixel_kernel(offs, psi, pixel_radius=pixel_radius, recenter=recenter)
+            k_pix = _kernel.psf_to_integer_pixel_kernel(offs, psf_row, pixel_radius=pixel_radius, recenter=recenter)
         else:
             mps_per_pix = _kernel.local_mps_per_pixel(wave_order, lo, hi)
             k_pix = _kernel.rv_ip_to_integer_pixel_kernel(
-                offs, psi, mps_per_pix, pixel_radius=pixel_radius, recenter=recenter,
+                offs, psf_row, mps_per_pix, pixel_radius=pixel_radius, recenter=recenter,
             )
 
         x_chunk = rl_deconvolve_1d(y_chunk, k_pix, n_iter=rl_iters, l2_damp=l2_damp)
