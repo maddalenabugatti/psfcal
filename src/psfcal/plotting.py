@@ -27,6 +27,8 @@ def plot_psf(
     show_mean: bool = False,
     robust_ylim: bool = True,
     figsize=(7, 6),
+    truth=None,
+    xlabel: str = "Offset",
 ):
     """
     Top panel: stacked data + GP model. Bottom panel: normalised residuals.
@@ -47,6 +49,12 @@ def plot_psf(
     ``psf_result["recenter_shift"]``) so they land on the same scale and
     offset as ``psf_mean`` rather than their own, generally much larger,
     natural scale.
+
+    ``truth`` (optional ``(x, y)`` tuple) overlays a known PSF as a dashed
+    black line, for synthetic tests. It must be on the same x axis and
+    area-normalised in the same units as ``psf_mean``.
+    ``xlabel`` labels the offset axis (e.g. ``"Offset [pixel]"`` or
+    ``"Offset [m/s]"``).
 
     ``robust_ylim`` (default True) sets the y-axis range from the fitted
     curve and the data's own central values (a 0.5-99.5 percentile), not
@@ -89,6 +97,8 @@ def plot_psf(
 
     if np.any(pe > 0):
         ax1.fill_between(px, py - pe, py + pe, alpha=0.20, color="firebrick")
+    if truth is not None:
+        ax1.plot(truth[0], truth[1], color="k", lw=1.2, ls="--", label="true PSF", zorder=5)
     ax1.axhline(0, color="k", lw=0.6, ls=":")
     ax1.legend(fontsize=8)
     ax1.set_title(title)
@@ -108,10 +118,10 @@ def plot_psf(
     ax2.axhspan(-1, 1, color="steelblue", alpha=0.12, zorder=0)
     ax2.axhspan(-3, 3, color="salmon", alpha=0.12, zorder=0)
     ax2.set_ylabel(r"$(y - \psi)\,/\,\sigma$")
-    ax2.set_xlabel("Offset")
+    ax2.set_xlabel(xlabel)
     ax2.set_ylim(-6, 6)
 
-    plt.tight_layout()
+    fig.subplots_adjust(left=0.14, right=0.97, top=0.94, bottom=0.10)
     return fig, (ax1, ax2)
 
 

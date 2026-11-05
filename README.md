@@ -29,14 +29,16 @@ Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
 
 ## Tutorials
 
-Both notebooks are in [`examples/`](examples/) and need no data files.
+The notebooks are in [`examples/`](examples/). The first two use synthetic data; the third bundles a small real HARPS extract (`examples/data/`).
 
 | Notebook | What it shows |
 |---|---|
-| [`quickstart.ipynb`](examples/quickstart.ipynb) | How to call every function, in pixel and RV space, on synthetic data |
+| [`quickstart.ipynb`](examples/quickstart.ipynb) | How to call every function, in pixel and RV space, on synthetic data (the reconstruction is overlaid on the known true PSF) |
 | [`parameters.ipynb`](examples/parameters.ipynb) | What the main options **change**, with plots: chunk length and S/N, background subtraction, outlier handling, iterations, secondary GP, deconvolution iterations and damping, chunk geometry. Each option is scored against a known true PSF. |
 
-`parameters.ipynb` reads its cached fit results from `examples/parameters_cache.pkl`, so it opens instantly.
+| [`harps_lfc_real_data.ipynb`](examples/harps_lfc_real_data.ipynb) | A **real HARPS laser-frequency-comb chunk**: reconstruct the PSF, see why sub-pixel stacking works, why background subtraction matters, and deconvolve the comb with its own PSF |
+
+`parameters.ipynb` and `harps_lfc_real_data.ipynb` read their cached fit results from `examples/parameters_cache.pkl`, so it opens instantly.
 Set `RECOMPUTE = True` in its first cell to refit everything (~15 min).
 
 ## API
@@ -99,10 +101,15 @@ The defaults work well for HARPS LFC data. The options below are the ones worth 
 | `sigma_clip_nsigma`, `student_t_dof` | off | real outliers (cosmic rays, blends) show in the residuals. Check before enabling: in the notebook the soft `student_t_dof` helped while the hard sigma clip made the PSF worse. |
 | `max_half_window`, `min_window_width` | 15, 6 | lines are blended or very unevenly spaced |
 | `rl_iters` | 10 | choose from an error-vs-iterations plot on your data; the optimum was ~100–300 in the notebook example |
-| `l2_damp` | 3e-6 | keep it small (≲ 1e-5): 1e-4 stalls the sharpening and 1e-3 stops deconvolution doing anything |
+| `l2_damp` | 3e-6 | keep it small. It acts on the flux **in its own units**: with `continuum_normalize=False` and raw counts of ~1e5 the default stalls the deconvolution, so scale the flux to ~1 first (the default `continuum_normalize=True` does this for you) |
 | `n_psf_points` | 800 (pixel) / 500 (RV) | only the sampling of the returned PSF |
 
 Run time: one GP fit takes tens of seconds per chunk (first call also compiles JAX code), so a full cube takes a while.
+
+## Acknowledgements
+
+This package, its tutorials and its documentation were developed with the help of Claude (Anthropic), an AI assistant.
+The scientific method, the choices and the validation against HARPS data are the author's.
 
 ## Citation
 
