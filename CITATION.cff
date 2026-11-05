@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below and Milaković & Jethwa (2024)."
+title: "psfcal"
+abstract: "Instrumental-profile (PSF/IP) reconstruction, forward convolution, Richardson-Lucy deconvolution and RV-shift toolkit for echelle spectra (HARPS-style pixel and RV chunks)."
+type: software
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/maddalenabugatti/psfcal"
+authors:
+  - family-names: Bugatti
+    given-names: Maddalena
+    email: maddalena.bugatti@unige.ch
+    affiliation: "Département d'Astronomie, Université de Genève, Switzerland"
+preferred-citation:
+  type: unpublished
+  title: "PSF correction of HARPS-S data"
+  status: in-preparation
+  # TODO: add the remaining co-author (Dinko M....) and the journal/year/DOI once known.
+  authors:
+    - family-names: Bugatti
+      given-names: Maddalena
+    - family-names: Hirano
+      given-names: Teruyuki
+    - family-names: Pepe
+      given-names: Francesco
+    - family-names: Lovis
+      given-names: Christophe
+    - family-names: Dumusque
+      given-names: Xavier
+    - family-names: Tavella
+      given-names: Sara
+references:
+  - type: article
+    title: "Precise empirical determination of the instrumental line spread function of high-resolution spectrographs"
+    authors:
+      - family-names: Milaković
+        given-names: D.
+      - family-names: Jethwa
+        given-names: P.
+    journal: "Astronomy & Astrophysics"
+    volume: 684
+    start: A38
+    year: 2024

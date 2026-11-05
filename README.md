@@ -10,8 +10,18 @@ no FITS I/O baked in.
 
 ## Install
 
+Directly from GitHub (needs Python ≥ 3.10):
+
 ```bash
-pip install -e .[plot,test]
+pip install "psfcal[plot] @ git+https://github.com/maddalenabugatti/psfcal.git"
+```
+
+Or from a local clone, e.g. to run the tests or edit the code:
+
+```bash
+git clone https://github.com/maddalenabugatti/psfcal.git
+cd psfcal
+pip install -e ".[plot,test]"
 ```
 
 Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
@@ -93,6 +103,19 @@ The defaults work well for HARPS LFC data. The options below are the ones worth 
 | `n_psf_points` | 800 (pixel) / 500 (RV) | only the sampling of the returned PSF |
 
 Run time: one GP fit takes tens of seconds per chunk (first call also compiles JAX code), so a full cube takes a while.
+
+## Citation
+
+If you use psfcal, please cite the paper that describes its application to HARPS:
+
+> Bugatti, M., Hirano, T., Pepe, F., Lovis, C., Dumusque, X., Tavella, S., et al.
+> *PSF correction of HARPS-S data* (in preparation).
+
+and the GP-based IP reconstruction method it implements:
+
+> Milaković, D. & Jethwa, P. 2024, A&A, 684, A38.
+
+GitHub's "Cite this repository" button uses [`CITATION.cff`](CITATION.cff).
 
 ## Testing
 
