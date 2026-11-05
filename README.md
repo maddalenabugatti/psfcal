@@ -17,6 +17,18 @@ pip install -e .[plot,test]
 Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
 `matplotlib` is optional (`psfcal[plot]`), needed only for `psfcal.plotting`.
 
+## Tutorials
+
+Both notebooks are in [`examples/`](examples/) and need no data files.
+
+| Notebook | What it shows |
+|---|---|
+| [`quickstart.ipynb`](examples/quickstart.ipynb) | How to call every function, in pixel and RV space, on synthetic data |
+| [`parameters.ipynb`](examples/parameters.ipynb) | What the main options **change**, with plots: chunk length and S/N, background subtraction, outlier handling, iterations, secondary GP, deconvolution iterations and damping, chunk geometry. Each option is scored against a known true PSF. |
+
+`parameters.ipynb` reads its cached fit results from `examples/parameters_cache.pkl`, so it opens instantly.
+Set `RECOMPUTE = True` in its first cell to refit everything (~15 min).
+
 ## API
 
 | # | Function | Purpose |
@@ -62,6 +74,25 @@ recon = psfcal.convolve_chunk_pixel(deconv, psf["psf_x"], psf["psf_mean"])
 shift = psfcal.compute_rv_shift(wave1, flux1, wave2, flux2)
 print(shift["rv"], shift["rv_err"])
 ```
+
+## Choosing options
+
+The defaults work well for HARPS LFC data. The options below are the ones worth knowing about
+(measured on a synthetic chunk in [`parameters.ipynb`](examples/parameters.ipynb)).
+
+| Option | Default | Change it when… |
+|---|---|---|
+| `subtract_background` | `False` in `compute_psf_chunk_pixel`, `True` in `compute_psf_cube_pixel` | your data still contain a background. **The most important option:** leaving it off on a sloped background raised the PSF error from ~4% to ~45%. |
+| `n_chunks` / chunk length | 32 chunks per order | a chunk holds too few lines (error roughly halves each time the number of lines doubles) or the PSF varies along the order (use shorter chunks) |
+| `n_iterations` | 1 | rarely; 3 iterations gave the same PSF at ~2–3× the run time |
+| `use_secondary_gp` | `True` | set `False` for a faster fit with a nearly identical PSF |
+| `sigma_clip_nsigma`, `student_t_dof` | off | real outliers (cosmic rays, blends) show in the residuals. Check before enabling: in the notebook the soft `student_t_dof` helped while the hard sigma clip made the PSF worse. |
+| `max_half_window`, `min_window_width` | 15, 6 | lines are blended or very unevenly spaced |
+| `rl_iters` | 10 | choose from an error-vs-iterations plot on your data; the optimum was ~100–300 in the notebook example |
+| `l2_damp` | 3e-6 | keep it small (≲ 1e-5): 1e-4 stalls the sharpening and 1e-3 stops deconvolution doing anything |
+| `n_psf_points` | 800 (pixel) / 500 (RV) | only the sampling of the returned PSF |
+
+Run time: one GP fit takes tens of seconds per chunk (first call also compiles JAX code), so a full cube takes a while.
 
 ## Testing
 
