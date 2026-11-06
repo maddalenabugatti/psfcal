@@ -29,17 +29,17 @@ Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
 
 ## Tutorials
 
-The notebooks are in [`examples/`](examples/). The first two use synthetic data; the third bundles a small real HARPS extract (`examples/data/`).
+The notebooks are in [`examples/`](examples/). The first two use synthetic data; the last two run on small real HARPS and ESPRESSO LFC extracts bundled in `examples/data/` (public ESO archive data).
 
 | Notebook | What it shows |
 |---|---|
 | [`quickstart.ipynb`](examples/quickstart.ipynb) | How to call every function, in pixel and RV space, on synthetic data (the reconstruction is overlaid on the known true PSF) |
 | [`parameters.ipynb`](examples/parameters.ipynb) | What the main options **change**, with plots: chunk length and S/N, background subtraction, outlier handling, iterations, secondary GP, deconvolution iterations and damping, chunk geometry. Each option is scored against a known true PSF. |
-
 | [`harps_lfc_real_data.ipynb`](examples/harps_lfc_real_data.ipynb) | A **real HARPS laser-frequency-comb chunk**: reconstruct the PSF, see why sub-pixel stacking works, why background subtraction matters, and deconvolve the comb with its own PSF |
+| [`espresso_lfc_real_data.ipynb`](examples/espresso_lfc_real_data.ipynb) | The same on a **real ESPRESSO LFC exposure**: PSFs of three chunks of one order (they differ), comparison with HARPS, background and deconvolution |
 
-`parameters.ipynb` and `harps_lfc_real_data.ipynb` read their cached fit results from `examples/parameters_cache.pkl`, so it opens instantly.
-Set `RECOMPUTE = True` in its first cell to refit everything (~15 min).
+The last three notebooks load cached fit results (`examples/parameters_cache.pkl`, `examples/data/*_fit_cache.pkl`), so they open instantly.
+Set `RECOMPUTE = True` in a notebook's first cell to refit everything (about 1 min per fit; ~15 min for `parameters.ipynb`).
 
 ## API
 
