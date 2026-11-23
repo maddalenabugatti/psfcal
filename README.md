@@ -29,7 +29,7 @@ Core dependencies: `numpy`, `scipy`, `jax`, `jaxopt`, `tinygp`.
 
 ## Tutorials
 
-The notebooks are in [`examples/`](examples/). The first two use synthetic data; the last two run on small real HARPS and ESPRESSO LFC extracts bundled in `examples/data/` (public ESO archive data).
+The notebooks are in [`examples/`](examples/). The first two use synthetic data; the last two run on **real HARPS and ESPRESSO LFC exposures** (unmodified S2D FITS files) bundled in `examples/data/`, described [below](#example-data).
 
 | Notebook | What it shows |
 |---|---|
@@ -40,6 +40,31 @@ The notebooks are in [`examples/`](examples/). The first two use synthetic data;
 
 The last three notebooks load cached fit results (`examples/parameters_cache.pkl`, `examples/data/*_fit_cache.pkl`), so they open instantly.
 Set `RECOMPUTE = True` in a notebook's first cell to refit everything (about 1 min per fit; ~15 min for `parameters.ipynb`).
+
+## Example data
+
+`examples/data/` contains two real laser-frequency-comb (LFC) calibration exposures, as unmodified S2D FITS files (extensions `SCIDATA` = flux, `ERRDATA` = 1σ error, `QUALDATA` = quality flags; one row per order):
+
+| File | Instrument | Taken | Programme / template | Reduced with | Size |
+|---|---|---|---|---|---|
+| `r.HARPS.2015-04-23T17_45_57.267_S2D_LFC_LFC_A.fits` | HARPS, ESO 3.6 m (La Silla) | 2015-04-23, 40 s | 60.A-9036(A), `HARPS_ech_cal_waveAB` | ESO DRS `harps/3.3.6` | 3.6 MB (71 orders × 4096 px) |
+| `r.ESPRE.2019-08-31T17_03_27.302_S2D_LFC_FP_A.fits` | ESPRESSO, ESO VLT (Paranal), SINGLEUHR, fibre A | 2019-08-31, 40 s | 60.A-9129(A), `ESPRESSO_singleUHR_cal_wave` | ESO DRS `espdr/3.3.20` | 18.7 MB (170 rows × 9111 px) |
+
+The colons of the original ESO file names are replaced by underscores. The data come from ESO calibration programmes; please acknowledge ESO when reusing them.
+
+To use them (or your own S2D files) for a whole order or exposure:
+
+```python
+from astropy.io import fits
+import psfcal
+
+with fits.open("examples/data/r.HARPS.2015-04-23T17_45_57.267_S2D_LFC_LFC_A.fits") as hdul:
+    flux, err = hdul["SCIDATA"].data.astype(float), hdul["ERRDATA"].data.astype(float)
+
+cube = psfcal.compute_psf_cube_pixel(flux, err, orders_1based=[60], n_chunks=16)
+```
+
+Each chunk takes about a minute, so a full exposure takes a while.
 
 ## API
 
